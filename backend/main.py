@@ -162,9 +162,20 @@ class MerchantCreate(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
 
-# --- NEW: Safe Public Response Schema to hide internal user IDs ---
+# --- Safe Public Response Schema to hide internal user IDs ---
 class MerchantPublic(BaseModel):
     id: UUID
+    name: str
+    location: Optional[str] = None
+    description: Optional[str] = None
+    duitnow_qr_url: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True
+
+# --- NEW: Public Response Schema without internal IDs ---
+class MerchantPublicWithoutId(BaseModel):
     name: str
     location: Optional[str] = None
     description: Optional[str] = None
@@ -749,21 +760,21 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
     return new_merchant
 
 
-# --- SECURE PUBLIC LIST ENDPOINT USING MerchantPublic SCHEMA ---
-@app.get("/merchants", response_model=List[MerchantPublic])
+# --- SECURE PUBLIC LIST ENDPOINT USING MerchantPublicWithoutId SCHEMA ---
+@app.get("/merchants", response_model=List[MerchantPublicWithoutId])
 async def list_merchants(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
     merchants = result.scalars().all()
-    return [MerchantPublic.model_validate(m) for m in merchants]
+    return [MerchantPublicWithoutId.model_validate(m) for m in merchants]
 
 
-# --- SECURE PUBLIC DETAIL ENDPOINT USING MerchantPublic SCHEMA ---
-@app.get("/merchants/{merchant_id}", response_model=MerchantPublic)
+# --- SECURE PUBLIC DETAIL ENDPOINT USING MerchantPublicWithoutId SCHEMA ---
+@app.get("/merchants/{merchant_id}", response_model=MerchantPublicWithoutId)
 async def get_merchant_details(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     merchant = await db.get(Merchant, merchant_id)
     if not merchant or merchant.is_active is False:
         raise HTTPException(status_code=404, detail="Merchant not found.")
-    return MerchantPublic.model_validate(merchant)
+    return MerchantPublicWithoutId.model_validate(merchant)
 
 
 # --- 1. SECURED: Create Menu Item (Merchant Owner or Admin Only) ---
