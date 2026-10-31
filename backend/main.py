@@ -1382,12 +1382,12 @@ async def get_event_merchants(event_id: UUID, db: AsyncSession = Depends(get_db)
     event_merchants = result.scalars().all()
     
     merchants_with_items = []
-<<<<<<< HEAD
+    
     # An event with no explicit assignments starts by showing every active
     # merchant. That keeps the public Event page useful before an admin has
     # customised the vendor list.
     if event_merchants:
-        merchant_rows = [(await db.get(Merchant, membership.merchant_id), membership.stall_number)
+        merchant_rows = [(await db.get(Merchant, membership.merchant_id), getattr(membership, "stall_number", None))
                          for membership in event_merchants]
     else:
         active = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)).order_by(Merchant.name))
@@ -1396,45 +1396,31 @@ async def get_event_merchants(event_id: UUID, db: AsyncSession = Depends(get_db)
     for merchant, stall_number in merchant_rows:
         if not merchant or merchant.is_active is False:
             continue
+            
         items_result = await db.execute(select(MenuItem).where(MenuItem.merchant_id == merchant.id))
         items = items_result.scalars().all()
+        
         merchants_with_items.append({
-            "id": str(merchant.id), "name": merchant.name,
-            "description": merchant.description, "location": merchant.location,
+            "id": str(merchant.id),
+            "name": merchant.name,
+            "description": merchant.description,
+            "location": merchant.location,
             "stall_number": stall_number,
-            "items": [{"id": str(item.id), "name": item.name, "description": item.description,
-                       "price": float(item.price), "image_url": item.image_url,
-                       "is_available": item.is_available} for item in items]
+            "items": [
+                {
+                    "id": str(item.id),
+                    "name": item.name,
+                    "description": item.description,
+                    "price": float(item.price),
+                    "image_url": item.image_url,
+                    # Fallbacks to ensure both frontend properties are met without throwing errors
+                    "is_active": getattr(item, "is_active", True),
+                    "is_available": getattr(item, "is_available", True)
+                }
+                for item in items
+            ]
         })
-=======
-    for em in event_merchants:
-        merchant = await db.get(Merchant, em.merchant_id)
-        if merchant and merchant.is_active is not False:
-            items_result = await db.execute(
-                select(MenuItem).where(MenuItem.merchant_id == merchant.id)
-            )
-            items = items_result.scalars().all()
-            
-            merchants_with_items.append({
-                "id": str(merchant.id),
-                "name": merchant.name,
-                "description": merchant.description,
-                "location": merchant.location,
-                "stall_number": getattr(em, "stall_number", None),
-                "items": [
-                    {
-                        "id": str(item.id),
-                        "name": item.name,
-                        "description": item.description,
-                        "price": float(item.price),
-                        "image_url": item.image_url,
-                        "is_active": item.is_active
-                    }
-                    for item in items
-                ]
-            })
->>>>>>> fb707a1f07b48caeffe32f76b4a4e23f2cc54b68
-    
+        
     return merchants_with_items
 
 
