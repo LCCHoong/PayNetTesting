@@ -25,6 +25,9 @@ class VerifyCodeRequest(SendVerificationRequest):
     password: str
     name: Optional[str] = None
     phone_number: Optional[str] = None
+    # account_type is accepted for API compatibility but ALWAYS resolved to "customer".
+    # Role promotion (customer → merchant / admin) is exclusively performed by admins
+    # via PUT /admin/users/{user_id}/role.
     account_type: Literal["customer", "merchant", "popup"] = "customer"
     store_name: Optional[str] = None
     location: Optional[str] = None
@@ -52,20 +55,18 @@ async def verify_code(req, db):
     if req.purpose == "register":
         if not req.name or not req.name.strip():
             raise HTTPException(400, "Name is required.")
-        if req.account_type == "merchant" and not (req.store_name or "").strip():
-            raise HTTPException(400, "Store name is required.")
     await check_code(db, req.email, req.purpose, req.code.strip())
     user = await find_user(db, req.email)
     if req.purpose == "register":
         if user:
             raise HTTPException(400, "Email already registered.")
+        # All self-registered accounts start as customers.
+        # Merchants are approved and promoted by admins only.
         user = User(name=req.name.strip(), email=req.email, phone_number=req.phone_number,
                     password_hash=hash_password(req.password), email_verified=True,
-                    role="customer" if req.account_type == "customer" else "merchant")
+                    role="customer")
         db.add(user)
         await db.flush()
-        if req.account_type == "merchant":
-            db.add(Merchant(user_id=user.id, name=req.store_name.strip(), location=req.location))
     else:
         if not user or user.is_deleted:
             raise HTTPException(400, "Unable to reset this account.")
