@@ -749,20 +749,22 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
     return new_merchant
 
 
-# --- UPDATED: Secure public list endpoint using MerchantPublic schema (hides user_id) ---
+# --- SECURE PUBLIC LIST ENDPOINT USING MerchantPublic SCHEMA ---
 @app.get("/merchants", response_model=List[MerchantPublic])
 async def list_merchants(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
-    return result.scalars().all()
+    merchants = result.scalars().all()
+    # Explicitly convert to MerchantPublic to ensure user_id is excluded
+    return [MerchantPublic.model_validate(m) for m in merchants]
 
 
-# --- UPDATED: Secure public detail endpoint using MerchantPublic schema (hides user_id) ---
+# --- SECURE PUBLIC DETAIL ENDPOINT USING MerchantPublic SCHEMA ---
 @app.get("/merchants/{merchant_id}", response_model=MerchantPublic)
 async def get_merchant_details(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     merchant = await db.get(Merchant, merchant_id)
     if not merchant or merchant.is_active is False:
         raise HTTPException(status_code=404, detail="Merchant not found.")
-    return merchant
+    return MerchantPublic.model_validate(merchant)
 
 
 @app.post("/merchants/{merchant_id}/items")
@@ -1207,7 +1209,7 @@ async def create_event(
     
     await db.commit()
     await db.refresh(new_event)
-    return {"id": str(new_event.id), "name": new_event.name, "message": "Event created successfully"}
+    return {"id": str(new_event.id), "name": event.name, "message": "Event created successfully"}
 
 
 @app.get("/events")
@@ -1326,7 +1328,7 @@ async def get_event_merchants(event_id: UUID, db: AsyncSession = Depends(get_db)
                         "description": item.description,
                         "price": float(item.price),
                         "image_url": item.image_url,
-                        "is_available": item.is_available
+                        "is_active": item.is_active
                     }
                     for item in items
                 ]
@@ -1353,12 +1355,12 @@ async def add_merchant_to_event(
     if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found.")
     
-    existing = await db.execute(
+    result = await db.execute(
         select(EventMerchant).where(
             (EventMerchant.event_id == event_id) & (EventMerchant.merchant_id == merchant_data.merchant_id)
         )
     )
-    if existing.scalars().first():
+    if result.scalars().first():
         raise HTTPException(status_code=400, detail="Merchant already added to this event.")
     
     event_merchant = EventMerchant(
