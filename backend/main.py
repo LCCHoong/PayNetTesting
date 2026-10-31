@@ -162,6 +162,18 @@ class MerchantCreate(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
 
+# --- NEW: Safe Public Response Schema to hide internal user IDs ---
+class MerchantPublic(BaseModel):
+    id: UUID
+    name: str
+    location: Optional[str] = None
+    description: Optional[str] = None
+    duitnow_qr_url: Optional[str] = None
+    is_active: Optional[bool] = True
+
+    class Config:
+        from_attributes = True
+
 class MenuItemCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -758,24 +770,20 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
     return new_merchant
 
 
-@app.get("/merchants")
+# --- UPDATED: Secure public list endpoint using MerchantPublic schema (hides user_id) ---
+@app.get("/merchants", response_model=List[MerchantPublic])
 async def list_merchants(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
     return result.scalars().all()
 
 
-@app.get("/merchants/{merchant_id}")
+# --- UPDATED: Secure public detail endpoint using MerchantPublic schema (hides user_id) ---
+@app.get("/merchants/{merchant_id}", response_model=MerchantPublic)
 async def get_merchant_details(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     merchant = await db.get(Merchant, merchant_id)
-    if not merchant:
+    if not merchant or merchant.is_active is False:
         raise HTTPException(status_code=404, detail="Merchant not found.")
-    return {
-        "id": str(merchant.id),
-        "name": merchant.name,
-        "location": merchant.location,
-        "description": merchant.description,
-        "duitnow_qr_url": getattr(merchant, "duitnow_qr_url", None)
-    }
+    return merchant
 
 
 @app.post("/merchants/{merchant_id}/items")
