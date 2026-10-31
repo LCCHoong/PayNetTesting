@@ -307,7 +307,14 @@ export default function Home() {
   // ─── 8. Compact Item Card Component ───────────────────────────────────────
   const ItemCard = ({ item }: { item: MenuItem }) => {
     const desc = item.description || "";
-    const isSpicy = /spicy|pedas|sambal|chili/i.test(`${item.name} ${desc}`);
+    // Menu management adds a structured "Spiciness:" tag. Read it first so
+    // "Non-Spicy" drinks such as Sprite Iced Tea are never labelled spicy.
+    const savedSpiceLevel = desc.match(/Spiciness:\s*([^|\]\n]+)/i)?.[1]?.trim().toLowerCase();
+    const hasSpicyWord = /\b(spicy|pedas|sambal|chili|chilli)\b/i.test(`${item.name} ${desc}`);
+    const isExplicitlyNonSpicy = /\b(non[-\s]?spicy|not spicy|tidak pedas)\b/i.test(`${item.name} ${desc}`);
+    const isSpicy = savedSpiceLevel
+      ? !["non-spicy", "non spicy", "not spicy", "tidak pedas"].includes(savedSpiceLevel)
+      : hasSpicyWord && !isExplicitlyNonSpicy;
     const isRahmah = Number(item.price) <= 5.0;
 
     return (
@@ -531,10 +538,12 @@ export default function Home() {
               </Link>
             </div>
 
+            <p className="text-sm text-purple-100">Meet the participating campus vendors and open any shop to see its real menu.</p>
             <div className="flex flex-wrap gap-3">
-              {merchants.filter(m => eventMerchantIds.includes(m.id)).map(m => <button key={m.id} onClick={() => setSelectedShop(m)} className="rounded-xl bg-white px-5 py-3 text-left text-slate-900 hover:bg-purple-50">
+              {merchants.filter(m => eventMerchantIds.includes(m.id)).map(m => <button key={m.id} onClick={() => setSelectedShop(m)} className="rounded-xl bg-white px-5 py-3 text-left text-slate-900 transition hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-white">
                 <span className="block font-bold">{m.name}</span><span className="text-xs text-slate-500">{m.location} · View shop</span>
               </button>)}
+              {!merchants.some(m => eventMerchantIds.includes(m.id)) && <p className="rounded-xl bg-white/10 px-4 py-3 text-sm text-purple-50">Event vendors will appear here when their shop is on board.</p>}
             </div>
           </div>
 
