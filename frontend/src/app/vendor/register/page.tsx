@@ -340,7 +340,7 @@ export default function RegisterPage() {
               onClick={() => { setStep("details"); setVerificationCode(""); setError(""); }}
               className="w-full text-gray-600 hover:text-gray-700 font-semibold text-sm py-2"
             >
-              ← Go Back
+              Go Back
             </button>
           </form>
         )}
