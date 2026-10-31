@@ -68,7 +68,6 @@ const DIETARY_OPTIONS = [
   "Vegetarian",
   "Vegan",
   "Gluten-Free",
-  "Pork-Free",
 ];
 
 const ALLERGEN_OPTIONS = [
