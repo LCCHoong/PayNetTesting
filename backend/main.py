@@ -202,7 +202,7 @@ class RentalStatusUpdate(BaseModel):
 
 
 class OrderStatusUpdate(BaseModel):
-    status: Literal["pending_verification", "pending", "preparing", "ready", "completed"]
+    status: Literal["draft", "pending_verification", "pending", "preparing", "ready", "completed"]
 
 
 # NEW: Schemas for Events
@@ -921,7 +921,7 @@ async def create_order(
         merchant_id=order_data.merchant_id,
         pickup_slot_id=order_data.pickup_slot_id,
         order_number=order_number,
-        status="pending_verification",
+        status="draft", # <--- UPDATED: Initial state is draft so merchant is not notified yet
         total_price=total_price,
         transaction_ref=None
     )
@@ -962,7 +962,7 @@ async def submit_order_receipt(
     public_url = await upload_to_supabase(receipt_file)
 
     order.transaction_ref = public_url
-    order.status = "pending_verification"
+    order.status = "pending_verification" # <--- UPDATED: Transitions status from draft to pending_verification
 
     try:
         await db.commit()
@@ -1005,6 +1005,7 @@ async def get_order(order_id: UUID, db: AsyncSession = Depends(get_db)):
         "status": order.status,
         "total_price": float(order.total_price),
         "created_at": order.created_at.isoformat() if order.created_at else None,
+        "transaction_ref": getattr(order, "transaction_ref", None), # Added so frontend can check transaction_ref
         "items": items_data
     }
 
@@ -1046,9 +1047,13 @@ async def list_merchant_orders(merchant_id: UUID, db: AsyncSession = Depends(get
     merchant = await db.get(Merchant, merchant_id)
     if not merchant or (current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id)):
         raise HTTPException(status_code=403, detail="Access denied.")
+    
     result = await db.execute(
         select(Order)
-        .where(Order.merchant_id == merchant_id)
+        .where(
+            Order.merchant_id == merchant_id,
+            Order.status != "draft" # <--- UPDATED: Hides draft/unpaid orders from the merchant dashboard
+        )
         .options(
             selectinload(Order.items).selectinload(OrderItem.menu_item),
             selectinload(Order.customer)

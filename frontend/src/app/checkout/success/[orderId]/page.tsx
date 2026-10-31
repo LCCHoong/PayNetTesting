@@ -25,8 +25,8 @@ export default function OrderVerificationPage() {
       .then((res) => res.json())
       .then((data) => {
         setOrder(data);
-        // If the order was already submitted previously, set submitted state to true
-        if (data.status && data.status !== "draft") {
+        // FIX: Only set submitted to true if a receipt has actually been uploaded (has transaction_ref)
+        if (data.transaction_ref) {
           setSubmitted(true);
         }
         // 2. Once order is fetched, fetch the merchant's DuitNow QR URL
@@ -56,7 +56,7 @@ export default function OrderVerificationPage() {
       const formData = new FormData();
       formData.append("receipt_file", fileInput.files[0]);
 
-      // This endpoint saves the file and shifts the order status from "draft" to "pending_verification"
+      // This changes order status from "draft" to "pending_verification" and notifies the merchant
       const res = await fetch(`${BACKEND_URL}/orders/${orderId}/submit-receipt`, {
         method: "PATCH",
         headers: {
