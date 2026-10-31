@@ -54,7 +54,6 @@ export default function OrdersPage() {
 
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-bold text-gray-900">My Order History</h1>
-
         </div>
 
         {loading && <p className="text-gray-500">Loading your orders...</p>}
@@ -70,35 +69,47 @@ export default function OrdersPage() {
         )}
 
         <div className="space-y-4">
-          {orders.map((order) => (
-            <Link 
-              key={order.id} 
-              href={`/orders/${order.id}`}
-              className="block bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-blue-300 transition-all cursor-pointer"
-            >
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-xs text-gray-400 font-mono mb-1 break-all">ID: {order.id}</p>
-                  <p className="text-sm text-gray-500">
-                    {new Date(order.created_at).toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" })}
-                  </p>
-                  <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${
-                    order.status === 'completed' 
-                      ? 'bg-green-100 text-green-700' 
-                      : 'bg-yellow-100 text-yellow-700'
-                  }`}>
-                    {order.status}
-                  </span>
+          {orders.map((order) => {
+            const isDraft = order.status === "draft";
+            
+            return (
+              <Link 
+                key={order.id} 
+                href={isDraft ? `/checkout/success/${order.id}` : `/orders/${order.id}`}
+                className="block bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:border-blue-300 transition-all cursor-pointer"
+              >
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="text-xs text-gray-400 font-mono mb-1 break-all">ID: {order.id}</p>
+                    <p className="text-sm text-gray-500">
+                      {new Date(order.created_at).toLocaleString("en-MY", { timeZone: "Asia/Kuala_Lumpur" })}
+                    </p>
+                    <span className={`inline-block mt-2 px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase ${
+                      order.status === 'completed' 
+                        ? 'bg-green-100 text-green-700' 
+                        : order.status === 'draft'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {order.status}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-lg font-bold text-gray-900">
+                      RM {Number(order.total_price).toFixed(2)}
+                    </span>
+                    {isDraft ? (
+                      <p className="text-xs text-amber-600 font-bold mt-1 bg-amber-50 px-2 py-1 rounded-lg border border-amber-200 inline-block">
+                        Complete Payment →
+                      </p>
+                    ) : (
+                      <p className="text-xs text-blue-600 font-medium mt-1">View Receipt →</p>
+                    )}
+                  </div>
                 </div>
-                <div className="text-right">
-                  <span className="text-lg font-bold text-gray-900">
-                    RM {Number(order.total_price).toFixed(2)}
-                  </span>
-                  <p className="text-xs text-blue-600 font-medium mt-1">View Receipt →</p>
-                </div>
-              </div>
-            </Link>
-          ))}
+              </Link>
+            );
+          })}
         </div>
       </div>
     </main>
