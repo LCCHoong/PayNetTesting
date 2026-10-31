@@ -754,7 +754,6 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
 async def list_merchants(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
     merchants = result.scalars().all()
-    # Explicitly convert to MerchantPublic to ensure user_id is excluded
     return [MerchantPublic.model_validate(m) for m in merchants]
 
 
@@ -767,11 +766,20 @@ async def get_merchant_details(merchant_id: UUID, db: AsyncSession = Depends(get
     return MerchantPublic.model_validate(merchant)
 
 
+# --- 1. SECURED: Create Menu Item (Merchant Owner or Admin Only) ---
 @app.post("/merchants/{merchant_id}/items")
-async def create_menu_item(merchant_id: UUID, item_data: MenuItemCreate, db: AsyncSession = Depends(get_db)):
-    merchant_check = await db.get(Merchant, merchant_id)
-    if not merchant_check:
+async def create_menu_item(
+    merchant_id: UUID, 
+    item_data: MenuItemCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found.")
+    
+    if current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied. You do not own this merchant account.")
 
     new_item = MenuItem(
         merchant_id=merchant_id,
@@ -791,12 +799,22 @@ async def create_menu_item(merchant_id: UUID, item_data: MenuItemCreate, db: Asy
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+# --- 2. SECURED: Update Menu Item ---
 @app.put("/merchants/items/{item_id}")
-async def update_menu_item(item_id: UUID, item_data: MenuItemCreate, db: AsyncSession = Depends(get_db)):
+async def update_menu_item(
+    item_id: UUID, 
+    item_data: MenuItemCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     item = await db.get(MenuItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found.")
     
+    merchant = await db.get(Merchant, item.merchant_id)
+    if current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied.")
+
     item.name = item_data.name
     item.description = item_data.description
     item.price = item_data.price
@@ -812,11 +830,20 @@ async def update_menu_item(item_id: UUID, item_data: MenuItemCreate, db: AsyncSe
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+# --- 3. SECURED: Delete Menu Item ---
 @app.delete("/merchants/items/{item_id}")
-async def delete_menu_item(item_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_menu_item(
+    item_id: UUID, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     item = await db.get(MenuItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Menu item not found.")
+    
+    merchant = await db.get(Merchant, item.merchant_id)
+    if current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied.")
     
     try:
         await db.delete(item)
@@ -827,11 +854,20 @@ async def delete_menu_item(item_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+# --- 4. SECURED: Create Pickup Slot ---
 @app.post("/merchants/{merchant_id}/pickup-slots")
-async def create_pickup_slot(merchant_id: UUID, slot_data: PickupSlotCreate, db: AsyncSession = Depends(get_db)):
-    merchant_check = await db.get(Merchant, merchant_id)
-    if not merchant_check:
+async def create_pickup_slot(
+    merchant_id: UUID, 
+    slot_data: PickupSlotCreate, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
         raise HTTPException(status_code=404, detail="Merchant not found.")
+        
+    if current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied.")
 
     new_slot = PickupSlot(
         merchant_id=merchant_id,
@@ -848,17 +884,27 @@ async def create_pickup_slot(merchant_id: UUID, slot_data: PickupSlotCreate, db:
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+# --- PUBLIC: List Pickup Slots ---
 @app.get("/merchants/{merchant_id}/pickup-slots")
 async def list_pickup_slots(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PickupSlot).where(PickupSlot.merchant_id == merchant_id))
     return result.scalars().all()
 
 
+# --- 5. SECURED: Delete Pickup Slot ---
 @app.delete("/merchants/pickup-slots/{slot_id}")
-async def delete_pickup_slot(slot_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_pickup_slot(
+    slot_id: UUID, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     slot = await db.get(PickupSlot, slot_id)
     if not slot:
         raise HTTPException(status_code=404, detail="Pickup slot not found.")
+    
+    merchant = await db.get(Merchant, slot.merchant_id)
+    if current_user.role != "admin" and (current_user.role != "merchant" or merchant.user_id != current_user.id):
+        raise HTTPException(status_code=403, detail="Access denied.")
     
     try:
         await db.delete(slot)
@@ -869,6 +915,7 @@ async def delete_pickup_slot(slot_id: UUID, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+# --- PUBLIC: List Menu Items ---
 @app.get("/merchants/{merchant_id}/items")
 async def list_menu_items(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(MenuItem).where(MenuItem.merchant_id == merchant_id))
@@ -1209,7 +1256,7 @@ async def create_event(
     
     await db.commit()
     await db.refresh(new_event)
-    return {"id": str(new_event.id), "name": event.name, "message": "Event created successfully"}
+    return {"id": str(new_event.id), "name": new_event.name, "message": "Event created successfully"}
 
 
 @app.get("/events")
