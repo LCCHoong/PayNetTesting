@@ -6,7 +6,7 @@ from sqlalchemy import select, func, update, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from database import get_db
-from models import User, Merchant, MenuItem, Order, RentalBooking
+from models import User, Merchant, MenuItem, Order
 from email_verification import issue_code, check_code, normalize_email
 from auth import hash_password, validate_password, verify_password, create_access_token, get_current_user, password_stamp, DELETED_EMAIL_DOMAIN
 
@@ -111,10 +111,7 @@ async def delete_account(req, current_user, db):
     if ids:
         await db.execute(update(Merchant).where(Merchant.id.in_(ids)).values(is_active=False))
         await db.execute(update(MenuItem).where(MenuItem.merchant_id.in_(ids)).values(is_available=False))
-    await db.execute(update(RentalBooking).where(
-        RentalBooking.vendor_user_id == current_user.id,
-        RentalBooking.status.in_(["pending", "approved"])
-    ).values(status="cancelled"))
+    
     current_user.is_deleted = True
     current_user.deleted_at = datetime.now(timezone.utc)
     current_user.name = "Deleted User"
