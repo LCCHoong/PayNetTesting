@@ -21,7 +21,6 @@ class User(Base):
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    rental_bookings = relationship("RentalBooking", back_populates="vendor_user")
     orders = relationship("Order", back_populates="customer")
 
 
@@ -35,10 +34,6 @@ class Merchant(Base):
     location = Column(String)
     duitnow_qr_url = Column(Text, nullable=True)  # <--- ADDED: Store vendor's static DuitNow QR image URL
     is_active = Column(Boolean, default=True)
-    is_temporary = Column(Boolean, default=False)
-    active_from = Column(Date)
-    active_until = Column(Date)
-    rental_booking_id = Column(UUID(as_uuid=True)) 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -100,36 +95,6 @@ class OrderItem(Base):
     order = relationship("Order", back_populates="items")
     menu_item = relationship("MenuItem")
 
-
-class BoulevardStall(Base):
-    __tablename__ = "boulevard_stalls"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    stall_number = Column(String, nullable=False)
-    location = Column(String, nullable=False)
-    size = Column(String)
-    rental_rate = Column(Numeric(10, 2), nullable=False)
-    is_available = Column(Boolean, default=True)
-    
-    rental_bookings = relationship("RentalBooking", back_populates="stall")
-
-
-class RentalBooking(Base):
-    __tablename__ = "rental_bookings"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    vendor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    stall_id = Column(UUID(as_uuid=True), ForeignKey("boulevard_stalls.id"), nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    status = Column(String, nullable=False, default="pending")
-    deposit_paid = Column(Boolean, default=False)
-    merchant_id = Column(UUID(as_uuid=True), ForeignKey("merchants.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # --- RELATIONSHIPS ---
-    vendor_user = relationship("User", back_populates="rental_bookings")
-    stall = relationship("BoulevardStall", back_populates="rental_bookings")
 
 
 class Event(Base):

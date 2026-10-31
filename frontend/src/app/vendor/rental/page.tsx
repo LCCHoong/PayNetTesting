@@ -1,13 +1,2 @@
-// src/app/vendor/rental/page.tsx
-"use client";
-
-import { Suspense } from "react";
-import RentalContent from "./content";
-
-export default function VendorRentalsPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading rentals...</div>}>
-      <RentalContent />
-    </Suspense>
-  );
-}
+// This page has been removed. Rental functionality is no longer part of this project.
+export default function RemovedPage() { return null; }

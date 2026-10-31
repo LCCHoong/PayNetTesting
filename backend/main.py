@@ -22,7 +22,7 @@ from uuid import UUID
 from supabase import create_client, Client
 
 from database import engine, get_db
-from models import Base, User, Merchant, MenuItem, PickupSlot, Order, OrderItem, BoulevardStall, RentalBooking, Event, EventMerchant
+from models import Base, User, Merchant, MenuItem, PickupSlot, Order, OrderItem, Event, EventMerchant
 
 # --- NEW AUTH IMPORTS ---
 from auth import hash_password, verify_password, create_access_token, get_current_user, DELETED_EMAIL_DOMAIN, validate_password, password_stamp
@@ -191,15 +191,6 @@ class SendCodeRequest(BaseModel):
     email: EmailStr
     purpose: Literal["register", "reset"]
 
-# NEW: Schemas for Boulevard Rental Bookings
-class RentalBookingCreate(BaseModel):
-    stall_id: UUID
-    start_date: date
-    end_date: date
-
-class RentalStatusUpdate(BaseModel):
-    status: str  # e.g., "approved", "rejected"
-
 
 class OrderStatusUpdate(BaseModel):
     status: Literal["draft", "pending_verification", "pending", "preparing", "ready", "completed"]
@@ -222,6 +213,9 @@ class EventMerchantAdd(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     role: Literal["admin", "merchant", "customer"]
+    store_name: Optional[str] = None   # Required when promoting to merchant
+    location: Optional[str] = None
+    description: Optional[str] = None
 
 
 # --- ROUTES ---
@@ -363,12 +357,7 @@ async def admin_delete_user(
         )
 
     try:
-        # 1. Delete dependent rental bookings first
-        await db.execute(
-            RentalBooking.__table__.delete().where(RentalBooking.vendor_user_id == target_user.id)
-        )
-
-        # 2. Deactivate menu items and explicitly delete merchant records to avoid foreign key violations
+        # 1. Deactivate menu items and explicitly delete merchant records to avoid foreign key violations
         merchant_result = await db.execute(select(Merchant).where(Merchant.user_id == target_user.id))
         merchant_ids = [m.id for m in merchant_result.scalars().all()]
 
@@ -412,15 +401,29 @@ async def update_user_role(
     target_user.role = payload.role
 
     if payload.role == "merchant":
+        if not (payload.store_name or "").strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="store_name is required when promoting a user to the merchant role.",
+            )
         merchant_check = await db.execute(select(Merchant).where(Merchant.user_id == target_user.id))
         if not merchant_check.scalars().first():
             new_merchant = Merchant(
                 user_id=target_user.id,
-                name=f"{target_user.name}'s Store",
-                description="Campus Merchant",
-                location="Sunway Campus"
+                name=payload.store_name.strip(),
+                description=payload.description or "Campus Merchant",
+                location=payload.location or "Sunway Campus"
             )
             db.add(new_merchant)
+        else:
+            # Update existing merchant record with supplied details
+            existing_merchant = merchant_check.scalars().first()
+            if existing_merchant:
+                existing_merchant.name = payload.store_name.strip()
+                if payload.description:
+                    existing_merchant.description = payload.description
+                if payload.location:
+                    existing_merchant.location = payload.location
 
     try:
         await db.commit()
@@ -526,45 +529,21 @@ async def forgot_password(payload: ForgotPasswordRequest, db: AsyncSession = Dep
     return await verify_code(VerifyCodeRequest(email=payload.email, purpose="reset", code=payload.verification_code, password=payload.new_password), db)
 
 
-@app.post("/auth/register-merchant", response_model=dict)
+@app.post("/auth/register-merchant", response_model=dict, deprecated=True)
 async def register_merchant(data: MerchantRegisterRequest, db: AsyncSession = Depends(get_db)):
-    existing_user = await db.execute(select(User).where(func.lower(func.trim(User.email)) == normalize_email(data.email)))
-    if existing_user.scalars().first():
-        raise HTTPException(status_code=400, detail="Email already registered.")
-    validate_password(data.password)
-    data.email = normalize_email(data.email)
-    await check_code(db, data.email, "register", data.verification_code)
-
-    new_user = User(
-        name=data.name,
-        email=data.email,
-        password_hash=hash_password(data.password),
-        role="merchant",
-        email_verified=True
+    """
+    DEPRECATED — Merchant self-registration is no longer permitted.
+    All accounts must register via /auth/verify-code as customers.
+    Admins promote users to the merchant role via PUT /admin/users/{user_id}/role.
+    """
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Merchant self-registration is disabled. "
+            "Please create a standard customer account and contact an administrator "
+            "to have your account upgraded to merchant."
+        ),
     )
-    db.add(new_user)
-    await db.flush() 
-
-    new_merchant = Merchant(
-        user_id=new_user.id,
-        name=data.store_name,
-        location=data.location,
-        description=data.description
-    )
-    db.add(new_merchant)
-
-    try:
-        await db.commit()
-        await db.refresh(new_user)
-        return {
-            "id": str(new_user.id),
-            "name": new_user.name,
-            "email": new_user.email,
-            "role": new_user.role
-        }
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
 @app.get("/merchants/me/profile")
@@ -1163,85 +1142,7 @@ async def update_order_status(
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
-# --- BOULEVARD RENTAL BOOKING ROUTES (PHASE 4) ---
-
-@app.get("/boulevard/stalls")
-async def list_boulevard_stalls(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(BoulevardStall))
-    return result.scalars().all()
-
-
-@app.post("/boulevard/bookings")
-async def create_rental_booking(
-    booking_data: RentalBookingCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    stall = await db.get(BoulevardStall, booking_data.stall_id)
-    if not stall:
-        raise HTTPException(status_code=404, detail="Stall not found.")
-
-    merchant_res = await db.execute(select(Merchant).where(Merchant.user_id == current_user.id))
-    merchant = merchant_res.scalars().first()
-    merchant_id = merchant.id if merchant else None
-
-    new_booking = RentalBooking(
-        vendor_user_id=current_user.id,
-        merchant_id=merchant_id,
-        stall_id=booking_data.stall_id,
-        start_date=booking_data.start_date,
-        end_date=booking_data.end_date,
-        status="pending",
-        deposit_paid=True
-    )
-    db.add(new_booking)
-
-    try:
-        await db.commit()
-        await db.refresh(new_booking)
-        return new_booking
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
-
-
-@app.get("/boulevard/my-bookings")
-async def list_my_rental_bookings(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    result = await db.execute(
-        select(RentalBooking).where(RentalBooking.vendor_user_id == current_user.id)
-    )
-    return result.scalars().all()
-
-
-@app.get("/admin/boulevard/bookings")
-async def list_all_rental_bookings(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied. Admin privileges required.")
-    
-    result = await db.execute(
-        select(RentalBooking)
-        .options(
-            selectinload(RentalBooking.vendor_user),
-            selectinload(RentalBooking.stall)
-        )
-        .order_by(RentalBooking.created_at.desc())
-    )
-    bookings = result.scalars().all()
-    
-    response_data = []
-    for b in bookings:
-        response_data.append({
-            "id": str(b.id),
-            "start_date": b.start_date,
-            "end_date": b.end_date,
-            "status": b.status,
-            "deposit_paid": b.deposit_paid,
-            "vendor_name": b.vendor_user.name if b.vendor_user else "Unknown Vendor",
-            "vendor_email": b.vendor_user.email if b.vendor_user else "N/A",
-            "stall_name": f"Stall {b.stall.stall_number}" if b.stall else "Boulevard Stall"
-        })
-    return response_data
-
+# --- ADMIN USERS ---
 
 @app.get("/admin/users")
 async def list_all_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -1262,54 +1163,6 @@ async def list_all_users(db: AsyncSession = Depends(get_db), current_user: User 
             "created_at": u.created_at.isoformat() if u.created_at else None
         })
     return response_data
-
-
-@app.patch("/boulevard/bookings/{booking_id}/status")
-async def update_rental_status(
-    booking_id: UUID,
-    status_data: RentalStatusUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Access denied. Admin privileges required.")
-
-    booking = await db.get(RentalBooking, booking_id)
-    if not booking:
-        raise HTTPException(status_code=404, detail="Rental booking not found.")
-
-    booking.status = status_data.status
-
-    if status_data.status == "approved":
-        vendor_user = await db.get(User, booking.vendor_user_id)
-        if vendor_user:
-            if vendor_user.role == "customer":
-                vendor_user.role = "merchant"
-
-            existing_merchant = await db.execute(
-                select(Merchant).where(Merchant.user_id == vendor_user.id)
-            )
-            merchant = existing_merchant.scalars().first()
-            if not merchant:
-                new_merchant = Merchant(
-                    user_id=vendor_user.id,
-                    name=f"{vendor_user.name}'s Pop-up Stall",
-                    description="Temporary Boulevard Pop-up Vendor",
-                    location="Sunway Boulevard"
-                )
-                db.add(new_merchant)
-                await db.flush()
-                booking.merchant_id = new_merchant.id
-            else:
-                booking.merchant_id = merchant.id
-
-    try:
-        await db.commit()
-        await db.refresh(booking)
-        return {"message": "Booking status updated successfully", "status": booking.status}
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
 # --- EVENT ENDPOINTS ---
