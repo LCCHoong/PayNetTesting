@@ -122,16 +122,3 @@ async def delete_account(req, current_user, db):
     current_user.phone_number = None
     await db.commit()
     return {"message": "Account deleted successfully"}
-
-class RentalBooking(Base):
-    __tablename__ = "rental_bookings"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    vendor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    stall_id = Column(String, nullable=False)
-    start_date = Column(DateTime, nullable=False)
-    end_date = Column(DateTime, nullable=False)
-    status = Column(String, default="pending")  # pending, approved, cancelled, etc.
-    deposit_paid = Column(Boolean, default=False)
-    merchant_id = Column(UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
