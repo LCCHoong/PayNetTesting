@@ -240,11 +240,16 @@ export default function MerchantMenuPage() {
     if (!merchant) return;
 
     try {
+      // Append +08:00 timezone offset so local time doesn't shift unexpectedly
+      const formattedTimeSlot = newSlot.time_slot.includes("+") || newSlot.time_slot.endsWith("Z")
+        ? newSlot.time_slot
+        : `${newSlot.time_slot}:00+08:00`;
+
       const res = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/pickup-slots`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          time_slot: newSlot.time_slot,
+          time_slot: formattedTimeSlot,
           max_capacity: parseInt(newSlot.max_capacity, 10),
         }),
       });
