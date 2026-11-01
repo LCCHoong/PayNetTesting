@@ -116,7 +116,7 @@ export default function ProfilePage() {
             </form>}
           </div>
           <nav aria-label="Account pages" className="grid grid-cols-2 gap-3 border-t border-stone-100 p-5 sm:p-7">
-            {user.role === "customer" ? <Link href="/orders" className={`${button} bg-orange-50 text-orange-800`}>Order history</Link> : <Link href={user.role === "admin" ? "/admin/rentals" : "/vendor/dashboard"} className={button}>Dashboard</Link>}
+            {user.role === "customer" ? <Link href="/orders" className={`${button} bg-orange-50 text-orange-800`}>Order history</Link> : <Link href={user.role === "admin" ? "/admin/users" : "/vendor/dashboard"} className={button}>Dashboard</Link>}
             <button onClick={logout} className={`${button} border-red-200 bg-red-50 text-red-700 hover:bg-red-100`}>Log out</button>
           </nav>
           </section>
