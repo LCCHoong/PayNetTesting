@@ -48,10 +48,17 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPIOffline):
-    # Idempotent lightweight migration for per-item customer customizations.
+    # Idempotent lightweight migrations for fields introduced after the
+    # original Supabase schema was created.
     async with engine.begin() as connection:
         await connection.execute(text(
             "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS special_instructions TEXT"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS is_preview BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        await connection.execute(text(
+            "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0"
         ))
     yield
 
@@ -826,6 +833,22 @@ async def list_merchants(db: AsyncSession = Depends(get_db)):
         .where(Merchant.name != "--")
         .where(Merchant.name != "")
         .where(Merchant.is_preview.is_not(True))
+    )
+    merchants = result.scalars().all()
+    return [MerchantPublic.model_validate(m) for m in merchants]
+
+
+# Keep this static route above /merchants/{merchant_id}; FastAPI resolves
+# routes in declaration order and would otherwise parse "sorted" as a UUID.
+@app.get("/merchants/sorted", response_model=List[MerchantPublic])
+async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Merchant)
+        .where(Merchant.is_active.is_not(False))
+        .where(Merchant.name != "--")
+        .where(Merchant.name != "")
+        .where(Merchant.is_preview.is_not(True))
+        .order_by(Merchant.display_order.asc().nulls_last(), Merchant.name)
     )
     merchants = result.scalars().all()
     return [MerchantPublic.model_validate(m) for m in merchants]
@@ -1782,21 +1805,6 @@ async def admin_reorder_merchants(
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/merchants/sorted")
-async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import text as sql_text
-    result = await db.execute(
-        select(Merchant)
-        .where(Merchant.is_active.is_not(False))
-        .where(Merchant.name != "--")
-        .where(Merchant.name != "")
-        .where(Merchant.is_preview.is_not(True))
-        .order_by(sql_text("display_order ASC NULLS LAST"), Merchant.name)
-    )
-    merchants = result.scalars().all()
-    return [MerchantPublic.model_validate(m) for m in merchants]
 
 
 @app.patch("/admin/merchants/{merchant_id}/preview")

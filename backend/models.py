@@ -34,6 +34,8 @@ class Merchant(Base):
     location = Column(String)
     duitnow_qr_url = Column(Text, nullable=True)  # <--- ADDED: Store vendor's static DuitNow QR image URL
     is_active = Column(Boolean, default=True)
+    is_preview = Column(Boolean, nullable=False, default=False)
+    display_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
