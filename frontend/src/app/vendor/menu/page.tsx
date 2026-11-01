@@ -292,8 +292,13 @@ export default function MerchantMenuPage() {
     if (!confirm("Are you sure you want to delete this menu item?")) return;
 
     try {
+      const token = localStorage.getItem("token");
+
       const res = await fetch(`${BACKEND_URL}/merchants/items/${itemId}`, {
         method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        },
       });
       if (!res.ok) throw new Error("Failed to delete item.");
 
@@ -305,9 +310,14 @@ export default function MerchantMenuPage() {
 
   const handleToggleAvailability = async (item: MenuItem) => {
     try {
+      const token = localStorage.getItem("token");
+
       const res = await fetch(`${BACKEND_URL}/merchants/items/${item.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           name: item.name,
           description: item.description,
