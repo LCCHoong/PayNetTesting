@@ -175,17 +175,6 @@ class MerchantPublic(BaseModel):
     class Config:
         from_attributes = True
 
-# --- NEW: Public Response Schema without internal IDs ---
-class MerchantPublicWithoutId(BaseModel):
-    name: str
-    location: Optional[str] = None
-    description: Optional[str] = None
-    duitnow_qr_url: Optional[str] = None
-    is_active: Optional[bool] = True
-
-    class Config:
-        from_attributes = True
-
 class MenuItemCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -762,21 +751,22 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
     return new_merchant
 
 
-# --- SECURE PUBLIC LIST ENDPOINT USING MerchantPublicWithoutId SCHEMA ---
-@app.get("/merchants", response_model=List[MerchantPublicWithoutId])
+# Merchant IDs are safe public shop identifiers. The frontend needs them to
+# fetch that shop's menu and pickup slots; the internal `user_id` remains hidden.
+@app.get("/merchants", response_model=List[MerchantPublic])
 async def list_merchants(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
     merchants = result.scalars().all()
-    return [MerchantPublicWithoutId.model_validate(m) for m in merchants]
+    return [MerchantPublic.model_validate(m) for m in merchants]
 
 
-# --- SECURE PUBLIC DETAIL ENDPOINT USING MerchantPublicWithoutId SCHEMA ---
-@app.get("/merchants/{merchant_id}", response_model=MerchantPublicWithoutId)
+# Public detail likewise needs the shop ID while excluding the owner user ID.
+@app.get("/merchants/{merchant_id}", response_model=MerchantPublic)
 async def get_merchant_details(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     merchant = await db.get(Merchant, merchant_id)
     if not merchant or merchant.is_active is False:
         raise HTTPException(status_code=404, detail="Merchant not found.")
-    return MerchantPublicWithoutId.model_validate(merchant)
+    return MerchantPublic.model_validate(merchant)
 
 
 # --- 1. SECURED: Create Menu Item (Merchant Owner or Admin Only) ---
