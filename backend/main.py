@@ -1780,10 +1780,13 @@ async def admin_reorder_merchants(
 
 @app.get("/merchants/sorted")
 async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import text as sql_text
     result = await db.execute(
         select(Merchant)
         .where(Merchant.is_active.is_not(False))
-        .order_by(Merchant.name)
+        .where(Merchant.name != "--")
+        .where(Merchant.name != "")
+        .order_by(sql_text("display_order ASC NULLS LAST"), Merchant.name)
     )
     merchants = result.scalars().all()
     return [MerchantPublic.model_validate(m) for m in merchants]
@@ -1796,10 +1799,13 @@ async def admin_list_merchants_ordered(
 ):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin privileges required.")
+    from sqlalchemy import text as sql_text
     rows = (await db.execute(
         select(Merchant, User)
         .join(User, Merchant.user_id == User.id)
-        .order_by(Merchant.name)
+        .where(Merchant.name != "--")
+        .where(Merchant.name != "")
+        .order_by(sql_text("merchants.display_order ASC NULLS LAST"), Merchant.name)
     )).all()
     return [
         {
