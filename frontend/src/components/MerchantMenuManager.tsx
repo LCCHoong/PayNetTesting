@@ -18,6 +18,13 @@ import { BACKEND_URL } from "@/lib/backend-url";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  getMenuCustomizationPolicy,
+  isHotMenuItemName,
+  MenuCustomization,
+  parseMenuDescription,
+  withMenuCustomizationPolicy,
+} from "@/lib/menu-customizations";
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 
@@ -42,6 +49,12 @@ interface PickupSlotProfile {
   time_slot: string;
   max_capacity: number;
   current_bookings: number;
+}
+
+interface CustomizationDraft {
+  sugar: boolean;
+  ice: boolean;
+  specialRequests: boolean;
 }
 
 // ─── Constants for Categories, Variations & Tags ─────────────────────────────
@@ -105,6 +118,16 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
   const [selectedDietary, setSelectedDietary] = useState<string[]>(["Halal"]);
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
   const [prepTime, setPrepTime] = useState("5-10 mins");
+  const [allowSugarCustomization, setAllowSugarCustomization] = useState(false);
+  const [allowIceCustomization, setAllowIceCustomization] = useState(false);
+  const [allowSpecialRequests, setAllowSpecialRequests] = useState(true);
+  const [editingCustomizationItemId, setEditingCustomizationItemId] = useState<string | null>(null);
+  const [customizationDraft, setCustomizationDraft] = useState<CustomizationDraft>({
+    sugar: false,
+    ice: false,
+    specialRequests: true,
+  });
+  const [savingCustomizationItemId, setSavingCustomizationItemId] = useState<string | null>(null);
 
   // ── Form State: Food Photo & Preview ──
   const [imageUrl, setImageUrl] = useState("");
@@ -233,6 +256,11 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
       if (selectedAllergens.length > 0) tags.push(`Allergens: ${selectedAllergens.join(", ")}`);
       if (addons.trim()) tags.push(`Add-ons: ${addons.trim()}`);
       if (sizeVariation) tags.push(`Size: ${sizeVariation}`);
+      const customizationOptions: MenuCustomization[] = [];
+      if (category === "Beverages" && allowSugarCustomization) customizationOptions.push("Sugar");
+      if (category === "Beverages" && allowIceCustomization && !isHotMenuItemName(name)) customizationOptions.push("Ice");
+      if (allowSpecialRequests) customizationOptions.push("Special requests");
+      tags.push(`Customizations: ${customizationOptions.length > 0 ? customizationOptions.join(", ") : "None"}`);
 
       const compiledDescription = tags.length > 0
         ? `${description.trim()}\n[${tags.join(" | ")}]`
@@ -266,6 +294,9 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
       setDescription("");
       setPrice("");
       setAddons("");
+      setAllowSugarCustomization(false);
+      setAllowIceCustomization(false);
+      setAllowSpecialRequests(true);
       handleClearPhoto();
       alert("Food product added to your stall menu successfully!");
     } catch (err: any) {
@@ -328,6 +359,59 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
       setSlots(slots.filter((s) => s.id !== slotId));
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const beginEditingCustomerOptions = (item: MenuItem) => {
+    const policy = getMenuCustomizationPolicy(item.name, item.description);
+    setCustomizationDraft({
+      sugar: policy.allowsSugar,
+      ice: policy.allowsIce,
+      specialRequests: policy.allowsSpecialRequests,
+    });
+    setEditingCustomizationItemId(item.id);
+  };
+
+  const handleSaveCustomerOptions = async (item: MenuItem) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Your session has expired. Please log in again.");
+      return;
+    }
+
+    const policy = getMenuCustomizationPolicy(item.name, item.description);
+    const options: MenuCustomization[] = [];
+    if (policy.isBeverage && customizationDraft.sugar) options.push("Sugar");
+    if (policy.isBeverage && !policy.isHot && customizationDraft.ice) options.push("Ice");
+    if (customizationDraft.specialRequests) options.push("Special requests");
+
+    setSavingCustomizationItemId(item.id);
+    try {
+      const res = await fetch(`${BACKEND_URL}/merchants/items/${item.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          name: item.name,
+          description: withMenuCustomizationPolicy(item.description, options),
+          price: item.price,
+          image_url: item.image_url,
+          is_available: item.is_available,
+        }),
+      });
+      if (!res.ok) {
+        const updateError = await res.json().catch(() => null);
+        throw new Error(updateError?.detail || "Failed to update customer options.");
+      }
+      const updated = await res.json();
+      setMenuItems((current) => current.map((menuItem) => menuItem.id === item.id ? updated : menuItem));
+      setEditingCustomizationItemId(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to update customer options.");
+    } finally {
+      setSavingCustomizationItemId(null);
     }
   };
 
@@ -459,7 +543,11 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      const nextName = e.target.value;
+                      setName(nextName);
+                      if (isHotMenuItemName(nextName)) setAllowIceCustomization(false);
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-[#F04B14] text-xs sm:text-sm text-slate-900 outline-none"
                     placeholder="e.g. Nasi Lemak Ayam Goreng"
                   />
@@ -471,7 +559,17 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                   </label>
                   <select
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+                    onChange={(e) => {
+                      const nextCategory = e.target.value;
+                      setCategory(nextCategory);
+                      if (nextCategory === "Beverages") {
+                        setAllowSugarCustomization(true);
+                        setAllowIceCustomization(false);
+                      } else {
+                        setAllowSugarCustomization(false);
+                        setAllowIceCustomization(false);
+                      }
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-[#F04B14] text-xs sm:text-sm text-slate-900 outline-none bg-white"
                   >
                     {FOOD_CATEGORIES.map((cat) => (
@@ -530,6 +628,43 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                   placeholder="Crispy fried chicken with aromatic coconut rice, roasted peanuts, crunchy anchovies, and spicy sweet sambal..."
                   rows={2}
                 />
+              </div>
+
+              <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase text-slate-800">Customer customization options</p>
+                    <p className="mt-0.5 text-xs text-slate-500">Only checked options will appear on this item.</p>
+                  </div>
+                  {category === "Beverages" && isHotMenuItemName(name) && (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-800">Hot item: ice disabled</span>
+                  )}
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <CustomizationCheckbox
+                    label="Sugar level"
+                    description="Normal, less or no sugar"
+                    checked={allowSugarCustomization}
+                    disabled={category !== "Beverages"}
+                    onChange={setAllowSugarCustomization}
+                  />
+                  <CustomizationCheckbox
+                    label="Ice level"
+                    description="Normal, less or no ice"
+                    checked={allowIceCustomization}
+                    disabled={category !== "Beverages" || isHotMenuItemName(name)}
+                    onChange={setAllowIceCustomization}
+                  />
+                  <CustomizationCheckbox
+                    label="Special request note"
+                    description="Simple preparation notes"
+                    checked={allowSpecialRequests}
+                    onChange={setAllowSpecialRequests}
+                  />
+                </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-amber-800">
+                  Create hot and cold drinks as separate menu items with their own prices. Customers cannot use these options to change temperature, size, or priced add-ons.
+                </p>
               </div>
 
               {/* Row 4: Food Variations (Spiciness & Size) */}
@@ -817,11 +952,21 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {menuItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition"
-                >
+              {menuItems.map((item) => {
+                const policy = getMenuCustomizationPolicy(item.name, item.description);
+                const parsedDescription = parseMenuDescription(item.description);
+                const enabledOptions = [
+                  policy.allowsSugar ? "Sugar" : null,
+                  policy.allowsIce ? "Ice" : null,
+                  policy.allowsSpecialRequests ? "Notes" : null,
+                ].filter((option): option is string => Boolean(option));
+                const isEditingOptions = editingCustomizationItemId === item.id;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-sm flex flex-col justify-between hover:shadow-md transition"
+                  >
                   {/* Food Photo */}
                   <div className="relative h-36 w-full bg-slate-100 overflow-hidden">
                     {item.image_url ? (
@@ -856,8 +1001,66 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                     </div>
 
                     <p className="mt-1 line-clamp-3 text-xs text-slate-500 whitespace-pre-line flex-1">
-                      {item.description || "Freshly made daily."}
+                      {parsedDescription.description || "Freshly made daily."}
                     </p>
+
+                    <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50/60 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-orange-800">Customer options</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {enabledOptions.length > 0 ? enabledOptions.map((option) => (
+                              <span key={option} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700">{option}</span>
+                            )) : (
+                              <span className="text-[11px] font-semibold text-slate-500">None</span>
+                            )}
+                            {!policy.hasExplicitPolicy && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">Review legacy item</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => isEditingOptions ? setEditingCustomizationItemId(null) : beginEditingCustomerOptions(item)}
+                          className="shrink-0 rounded-lg border border-orange-200 bg-white px-2.5 py-1.5 text-[11px] font-bold text-orange-700 hover:bg-orange-100"
+                        >
+                          {isEditingOptions ? "Cancel" : "Edit"}
+                        </button>
+                      </div>
+
+                      {isEditingOptions && (
+                        <div className="mt-3 space-y-2 border-t border-orange-100 pt-3">
+                          <CustomizationCheckbox
+                            label="Sugar level"
+                            description="Normal, less or no sugar"
+                            checked={customizationDraft.sugar}
+                            disabled={!policy.isBeverage}
+                            onChange={(checked) => setCustomizationDraft((current) => ({ ...current, sugar: checked }))}
+                          />
+                          <CustomizationCheckbox
+                            label="Ice level"
+                            description={policy.isHot ? "Unavailable for hot items" : "Normal, less or no ice"}
+                            checked={customizationDraft.ice}
+                            disabled={!policy.isBeverage || policy.isHot}
+                            onChange={(checked) => setCustomizationDraft((current) => ({ ...current, ice: checked }))}
+                          />
+                          <CustomizationCheckbox
+                            label="Special request note"
+                            description="No temperature, size, or paid changes"
+                            checked={customizationDraft.specialRequests}
+                            onChange={(checked) => setCustomizationDraft((current) => ({ ...current, specialRequests: checked }))}
+                          />
+                          <button
+                            type="button"
+                            disabled={savingCustomizationItemId === item.id}
+                            onClick={() => handleSaveCustomerOptions(item)}
+                            className="w-full rounded-lg bg-orange-600 px-3 py-2 text-xs font-bold text-white hover:bg-orange-700 disabled:opacity-60"
+                          >
+                            {savingCustomizationItemId === item.id ? "Saving..." : "Save customer options"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Action Bar */}
                     <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
@@ -881,7 +1084,8 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -889,4 +1093,35 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
     </Container>
   );
 }
+
+function CustomizationCheckbox({
+  label,
+  description,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className={`flex cursor-pointer items-start gap-2 rounded-lg border bg-white p-2.5 ${disabled ? "cursor-not-allowed border-slate-100 opacity-55" : "border-slate-200 hover:border-orange-300"}`}>
+      <input
+        type="checkbox"
+        checked={checked && !disabled}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-0.5 h-4 w-4 accent-orange-600"
+      />
+      <span className="min-w-0">
+        <span className="block text-xs font-bold text-slate-800">{label}</span>
+        <span className="block text-[10px] leading-relaxed text-slate-500">{description}</span>
+      </span>
+    </label>
+  );
+}
+
 export default MerchantMenuManager;

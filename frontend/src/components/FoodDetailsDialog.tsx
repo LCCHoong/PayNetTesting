@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BACKEND_URL } from "@/lib/backend-url";
+import { getMenuCustomizationPolicy, parseMenuDescription } from "@/lib/menu-customizations";
 
 type Food = {
   name: string;
@@ -40,19 +41,17 @@ export default function FoodDetailsDialog({ item, merchant, onClose, onAdd }: Fo
   }, []);
 
   const image = item.image_url?.startsWith("/") ? BACKEND_URL + item.image_url : item.image_url;
-  const rawDescription = item.description?.trim() || "";
-  const metadata = rawDescription.match(/\[([^\]]+)\]\s*$/)?.[1] || "";
-  const description = rawDescription.replace(/\s*\[[^\]]+\]\s*$/, "").trim();
-  const isBeverage = /category:\s*beverages?/i.test(metadata) ||
-    /\b(coffee|latte|tea|teh|kopi|cocoa|chocolate|juice|smoothie|drink|beverage|soda|milk)\b/i.test(`${item.name} ${description}`);
-  const metadataChips = useMemo(
-    () => metadata.split("|").map((part) => part.trim()).filter(Boolean),
-    [metadata],
-  );
+  const parsedDescription = parseMenuDescription(item.description);
+  const policy = getMenuCustomizationPolicy(item.name, item.description);
+  const metadataChips = parsedDescription.tags.filter((tag) => !/^customizations\s*:/i.test(tag));
+  const hasChoiceControls = policy.allowsSugar || policy.allowsIce;
+  const hasCustomizations = hasChoiceControls || policy.allowsSpecialRequests;
 
   const handleAdd = () => {
-    const choices = isBeverage ? [`Sugar: ${sugar}`, `Ice: ${ice}`] : [];
-    if (note.trim()) choices.push(`Note: ${note.trim()}`);
+    const choices: string[] = [];
+    if (policy.allowsSugar) choices.push(`Sugar: ${sugar}`);
+    if (policy.allowsIce) choices.push(`Ice: ${ice}`);
+    if (policy.allowsSpecialRequests && note.trim()) choices.push(`Note: ${note.trim()}`);
     onAdd(choices.join(" | "));
   };
 
@@ -83,7 +82,7 @@ export default function FoodDetailsDialog({ item, merchant, onClose, onAdd }: Fo
         )}
 
         <p className="mt-4 whitespace-pre-line text-sm leading-relaxed text-slate-600">
-          {description || "The stall has not added a description yet."}
+          {parsedDescription.description || "The stall has not added a description yet."}
         </p>
         {metadataChips.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
@@ -93,25 +92,30 @@ export default function FoodDetailsDialog({ item, merchant, onClose, onAdd }: Fo
           </div>
         )}
 
-        {isBeverage && (
+        {hasChoiceControls && (
           <div className="mt-5 space-y-4 border-t border-slate-100 pt-5">
-            <ChoiceGroup label="Sugar level" options={SUGAR_LEVELS} value={sugar} onChange={setSugar} />
-            <ChoiceGroup label="Ice level" options={ICE_LEVELS} value={ice} onChange={setIce} />
+            {policy.allowsSugar && <ChoiceGroup label="Sugar level" options={SUGAR_LEVELS} value={sugar} onChange={setSugar} />}
+            {policy.allowsIce && <ChoiceGroup label="Ice level" options={ICE_LEVELS} value={ice} onChange={setIce} />}
           </div>
         )}
 
-        <label className="mt-5 block text-sm font-semibold text-slate-800">
-          Special preparation request <span className="font-normal text-slate-400">(optional)</span>
-          <textarea
-            value={note}
-            onChange={(event) => setNote(event.target.value.slice(0, 180))}
-            rows={3}
-            maxLength={180}
-            placeholder={isBeverage ? "e.g. oat milk, extra hot" : "e.g. sauce on the side, no onion"}
-            className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
-          />
-          <span className="mt-1 block text-right text-[11px] font-normal text-slate-400">{note.length}/180</span>
-        </label>
+        {policy.allowsSpecialRequests && (
+          <label className="mt-5 block text-sm font-semibold text-slate-800">
+            Special preparation request <span className="font-normal text-slate-400">(optional)</span>
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value.slice(0, 180))}
+              rows={3}
+              maxLength={180}
+              placeholder={policy.isBeverage ? "e.g. no whipped cream" : "e.g. sauce on the side, no onion"}
+              className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+            />
+            <span className="mt-1 block text-right text-[11px] font-normal text-slate-400">{note.length}/180</span>
+            <span className="mt-1 block text-xs font-normal leading-relaxed text-amber-700">
+              Requests cannot change the item&apos;s temperature, size, or priced add-ons.
+            </span>
+          </label>
+        )}
 
         <div className="mt-4 border-t border-slate-100 pt-4">
           <h3 className="text-xs font-semibold uppercase text-slate-500">Pickup location</h3>
@@ -122,7 +126,7 @@ export default function FoodDetailsDialog({ item, merchant, onClose, onAdd }: Fo
           <strong className="text-xl text-orange-600">RM {Number(item.price).toFixed(2)}</strong>
         </div>
         <button type="button" disabled={!item.is_available} onClick={handleAdd} className="mt-4 w-full rounded-xl bg-[#F04B14] px-4 py-3 font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
-          {item.is_available ? "Add customised item to cart" : "Currently unavailable"}
+          {item.is_available ? (hasCustomizations ? "Add customised item to cart" : "Add item to cart") : "Currently unavailable"}
         </button>
       </div>
     </dialog>
