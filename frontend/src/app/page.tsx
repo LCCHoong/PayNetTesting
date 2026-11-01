@@ -19,7 +19,6 @@ import { BACKEND_URL } from "@/lib/backend-url";
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import ShopDetailsDialog from "@/components/ShopDetailsDialog";
-import { isDisplayableFood } from "@/lib/menu-visibility";
 import RecommendationWidget from "@/components/RecommendationWidget";
 
 // ─── Type Definitions ────────────────────────────────────────────────────────
@@ -162,7 +161,7 @@ export default function Home() {
           if (!merchant.id) return [merchant.id, []] as const;
           try {
             const response = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/items`);
-            return [merchant.id, response.ok ? (await response.json()).filter(isDisplayableFood) : []] as const;
+            return [merchant.id, response.ok ? await response.json() : []] as const;
           } catch {
             return [merchant.id, []] as const;
           }
