@@ -47,6 +47,8 @@ interface PickupSlot {
   max_capacity: number;
 }
 
+type MenuLoadStatus = "loading" | "loaded" | "error";
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -61,7 +63,7 @@ export default function Home() {
   }, []);
   const [selectedMerchantId, setSelectedMerchantId] = useState<string | null>(null);
   const [menuItemsByMerchant, setMenuItemsByMerchant] = useState<Record<string, MenuItem[]>>({});
-  const [menusLoading, setMenusLoading] = useState(true);
+  const [menuStatusByMerchant, setMenuStatusByMerchant] = useState<Record<string, MenuLoadStatus>>({});
 
   // ── State: Pickup Slots ──
   const [pickupSlots, setPickupSlots] = useState<PickupSlot[]>([]);
@@ -104,8 +106,12 @@ export default function Home() {
       try {
         const res = await fetch(`${BACKEND_URL}/merchants`);
         if (res.ok) {
-          const data = await res.json();
+          const data: Merchant[] = await res.json();
+          if (!Array.isArray(data) || data.some((merchant) => !merchant.id)) {
+            throw new Error("The merchant response is missing required IDs.");
+          }
           setMerchants(data);
+          setMenuStatusByMerchant(Object.fromEntries(data.map((merchant) => [merchant.id, "loading"])));
           const shopId = new URLSearchParams(window.location.search).get("shop");
           if (shopId) setSelectedShop(data.find((m: Merchant) => m.id === shopId) ?? null);
           if (data.length > 0) {
@@ -148,34 +154,39 @@ export default function Home() {
 
   // ─── 4. Load Stall Menus for All Backend Merchants ────────────────────────
   useEffect(() => {
+    if (merchants.length === 0) return;
+
     let cancelled = false;
-    async function loadMenus() {
-      const backendMerchants = merchants;
-      if (backendMerchants.length === 0) {
-        setMenusLoading(false);
-        return;
+    const controllers = merchants.map(() => new AbortController());
+
+    merchants.forEach(async (merchant, index) => {
+      const controller = controllers[index];
+      const timeout = window.setTimeout(() => controller.abort(), 12_000);
+      try {
+        const response = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/items`, {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Menu request failed with ${response.status}`);
+        const items: MenuItem[] = await response.json();
+        if (!cancelled) {
+          setMenuItemsByMerchant((current) => ({ ...current, [merchant.id]: items }));
+          setMenuStatusByMerchant((current) => ({ ...current, [merchant.id]: "loaded" }));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error(`Failed to load menu for ${merchant.name}`, error);
+          setMenuItemsByMerchant((current) => ({ ...current, [merchant.id]: [] }));
+          setMenuStatusByMerchant((current) => ({ ...current, [merchant.id]: "error" }));
+        }
+      } finally {
+        window.clearTimeout(timeout);
       }
-      setMenusLoading(true);
-      const entries = await Promise.all(
-        backendMerchants.map(async (merchant) => {
-          if (!merchant.id) return [merchant.id, []] as const;
-          try {
-            const response = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/items`);
-            return [merchant.id, response.ok ? await response.json() : []] as const;
-          } catch {
-            return [merchant.id, []] as const;
-          }
-        })
-      );
-      if (!cancelled) {
-        setMenuItemsByMerchant(Object.fromEntries(entries));
-        setMenusLoading(false);
-      }
-    }
-    if (merchants.length > 0) {
-      loadMenus();
-    }
-    return () => { cancelled = true; };
+    });
+
+    return () => {
+      cancelled = true;
+      controllers.forEach((controller) => controller.abort());
+    };
   }, [merchants]);
 
   // ─── 5. Add to Cart Handler (with jumping animation & toast) ───────────────
@@ -239,6 +250,10 @@ export default function Home() {
   const allMenuItems = useMemo(
     () => Object.values(menuItemsByMerchant).flat(),
     [menuItemsByMerchant]
+  );
+  const menusLoading = useMemo(
+    () => merchants.some((merchant) => !menuStatusByMerchant[merchant.id] || menuStatusByMerchant[merchant.id] === "loading"),
+    [merchants, menuStatusByMerchant]
   );
   const cartMerchant = useMemo(
     () => merchants.find((merchant) => merchant.id === selectedMerchantId),
@@ -316,7 +331,7 @@ export default function Home() {
         <div className="relative h-28 sm:h-36 w-full overflow-hidden bg-slate-100">
           {item.image_url ? (
             <img
-              src={item.image_url}
+              src={item.image_url.startsWith("/") ? `${BACKEND_URL}${item.image_url}` : item.image_url}
               alt={item.name}
               loading="lazy"
               className="h-full w-full object-cover transition duration-300 hover:scale-105"
@@ -546,6 +561,7 @@ export default function Home() {
                 .filter((m) => !eventMerchantIds.includes(m.id))
                 .map((merchant) => {
                   const items = menuItemsByMerchant[merchant.id] ?? [];
+                  const menuStatus = menuStatusByMerchant[merchant.id] ?? "loading";
                   return (
                     <section
                       key={merchant.id}
@@ -569,8 +585,12 @@ export default function Home() {
                       </div>
 
                       <div className="min-w-0">
-                        {menusLoading ? (
+                        {menuStatus === "loading" ? (
                           <p className="py-6 text-center text-xs text-slate-400">Loading menu…</p>
+                        ) : menuStatus === "error" ? (
+                          <p role="status" className="py-6 text-center text-xs text-amber-700">
+                            Menu is temporarily unavailable. Refresh to try again.
+                          </p>
                         ) : items.length === 0 ? (
                           <p className="py-6 text-center text-xs text-slate-400">No menu items available yet.</p>
                         ) : (

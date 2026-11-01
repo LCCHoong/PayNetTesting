@@ -116,7 +116,7 @@ class VerificationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(error.exception.status_code,503)
 
 class RegistrationTests(unittest.IsolatedAsyncioTestCase):
-    async def test_registration_creates_profile_and_valid_app_token(self):
+    async def test_registration_ignores_requested_merchant_role(self):
         from jose import jwt
         from models import User, Merchant
         db=database()
@@ -127,9 +127,9 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
             result=await endpoints.verify_code(endpoints.VerifyCodeRequest(email=EMAIL,code="12345678",password=PASSWORD,name="Student",account_type="merchant",store_name="Cafe"),db)
         claims=jwt.decode(result["access_token"],auth.SECRET_KEY,algorithms=[auth.ALGORITHM])
         self.assertEqual(claims["sub"],result["user_id"])
-        self.assertEqual(claims["role"],"merchant")
+        self.assertEqual(claims["role"],"customer")
         self.assertIn("pwd",claims)
-        self.assertTrue(any(isinstance(c.args[0],Merchant) for c in db.add.call_args_list))
+        self.assertFalse(any(isinstance(c.args[0],Merchant) for c in db.add.call_args_list))
         db.commit.assert_awaited_once()
 
     async def test_profile_password_bypass_blocked(self):

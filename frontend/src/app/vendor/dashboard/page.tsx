@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
 import DeleteAccountButton from "@/components/DeleteAccountButton";
-import { MerchantMenuManager } from "../menu/page";
+import { MerchantMenuManager } from "@/components/MerchantMenuManager";
 
 interface MerchantProfile {
   id: string;

@@ -1,4 +1,6 @@
 import os
+import base64
+import binascii
 import logging
 import secrets
 from datetime import datetime, date, timedelta, timezone
@@ -9,6 +11,7 @@ import shutil
 from fastapi_offline import FastAPIOffline
 from fastapi import FastAPI, Depends, Query, status
 from fastapi.staticfiles import StaticFiles  # <--- Added import for serving static upload files
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import case, func, or_, update
@@ -61,12 +64,56 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") # Service role key to bypass RLS for uploads
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 
+ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def validate_menu_image_url(image_url: Optional[str]) -> Optional[str]:
+    """Keep menu payloads small and restrict images to normal web URLs."""
+    if not image_url or not image_url.strip():
+        return None
+
+    value = image_url.strip()
+    if value.lower().startswith("data:"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Embedded base64 images are not supported. Upload the image file instead.",
+        )
+    if len(value) > 2048 or not value.lower().startswith(("https://", "http://", "/uploads/")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Image must use a valid http(s) URL.",
+        )
+    return value
+
+
+def public_menu_item(item: MenuItem) -> dict:
+    """Serialize a menu item without leaking legacy multi-megabyte data URLs."""
+    image_url = item.image_url
+    if image_url and image_url.lstrip().lower().startswith("data:"):
+        image_url = f"/menu-items/{item.id}/image"
+    return {
+        "id": str(item.id),
+        "merchant_id": str(item.merchant_id),
+        "name": item.name,
+        "description": item.description,
+        "price": float(item.price),
+        "image_url": image_url,
+        "is_available": item.is_available,
+        "created_at": item.created_at,
+    }
+
 async def upload_to_supabase(file: UploadFile) -> str:
     """Helper function to upload files directly to Supabase Storage and return the public URL safely."""
     if not supabase:
         raise HTTPException(status_code=500, detail="Supabase Storage client is not configured on the backend.")
     try:
-        file_bytes = await file.read()
+        if file.content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+            raise HTTPException(status_code=400, detail="Only JPG, PNG, and WebP images are supported.")
+
+        file_bytes = await file.read(MAX_IMAGE_BYTES + 1)
+        if len(file_bytes) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller.")
         file_ext = file.filename.split(".")[-1] if file.filename and "." in file.filename else "png"
         file_name = f"{os.urandom(12).hex()}.{file_ext}"
         file_path = f"images/{file_name}"
@@ -90,6 +137,8 @@ async def upload_to_supabase(file: UploadFile) -> str:
             raise HTTPException(status_code=500, detail="Failed to generate public URL from Supabase.")
 
         return public_url
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"CRITICAL SUPABASE UPLOAD ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Supabase upload failed: {str(e)}")
@@ -163,7 +212,8 @@ class MerchantCreate(BaseModel):
     description: Optional[str] = None
     location: Optional[str] = None
 
-# --- Safe Public Response Schema to hide internal user IDs ---
+# Public merchant data includes the merchant ID because customers need it to
+# load menus and pickup slots. It does not expose the owner's user ID.
 class MerchantPublic(BaseModel):
     id: UUID
     name: str
@@ -532,6 +582,18 @@ async def upload_merchant_qr(
         raise HTTPException(status_code=400, detail=f"Database error details: {str(e)}")
 
 
+@app.post("/merchants/menu-image")
+async def upload_menu_image(
+    image_file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "merchant":
+        raise HTTPException(status_code=403, detail="Access denied. Merchant privileges required.")
+
+    public_url = await upload_to_supabase(image_file)
+    return {"image_url": public_url}
+
+
 @app.post("/auth/send-code")
 async def send_verification_code(payload: SendCodeRequest, db: AsyncSession = Depends(get_db)):
     return await send_verification(SendVerificationRequest(email=payload.email, purpose=payload.purpose), db)
@@ -788,7 +850,7 @@ async def create_menu_item(
         name=item_data.name,
         description=item_data.description,
         price=item_data.price,
-        image_url=item_data.image_url,
+        image_url=validate_menu_image_url(item_data.image_url),
         is_available=item_data.is_available
     )
     db.add(new_item)
@@ -820,7 +882,7 @@ async def update_menu_item(
     item.name = item_data.name
     item.description = item_data.description
     item.price = item_data.price
-    item.image_url = item_data.image_url
+    item.image_url = validate_menu_image_url(item_data.image_url)
     item.is_available = item_data.is_available
 
     try:
@@ -921,7 +983,34 @@ async def delete_pickup_slot(
 @app.get("/merchants/{merchant_id}/items")
 async def list_menu_items(merchant_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(MenuItem).where(MenuItem.merchant_id == merchant_id))
-    return result.scalars().all()
+    return [public_menu_item(item) for item in result.scalars().all()]
+
+
+@app.get("/menu-items/{item_id}/image")
+async def get_legacy_menu_image(item_id: UUID, db: AsyncSession = Depends(get_db)):
+    """Serve old data-URL photos separately so menu JSON remains small and fast."""
+    item = await db.get(MenuItem, item_id)
+    data_url = item.image_url if item else None
+    if not data_url or not data_url.lstrip().lower().startswith("data:image/"):
+        raise HTTPException(status_code=404, detail="Menu image not found.")
+
+    try:
+        header, encoded = data_url.split(",", 1)
+        media_type = header[5:].split(";", 1)[0].lower()
+        if media_type not in ALLOWED_IMAGE_CONTENT_TYPES or ";base64" not in header.lower():
+            raise ValueError("Unsupported image data URL")
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error):
+        raise HTTPException(status_code=404, detail="Menu image is invalid.") from None
+
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="Legacy menu image is too large.")
+
+    return Response(
+        content=image_bytes,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.post("/orders")
