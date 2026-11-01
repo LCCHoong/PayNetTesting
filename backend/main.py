@@ -219,7 +219,6 @@ class EventCreate(BaseModel):
     end_time: datetime
     banner_image_url: Optional[str] = None
     merchant_ids: List[UUID] = []
-    include_all_active_merchants: bool = False
 
 class EventMerchantAdd(BaseModel):
     merchant_id: UUID
@@ -1238,12 +1237,9 @@ async def create_event(
     
     if event_data.start_time.tzinfo is None or event_data.end_time.tzinfo is None or event_data.end_time <= event_data.start_time:
         raise HTTPException(status_code=422, detail="Provide a valid start and end time with timezone.")
+    # Event placement is always explicit. Shops remain on the normal campus
+    # marketplace until an administrator selects them for this event.
     merchant_ids = set(event_data.merchant_ids)
-    if event_data.include_all_active_merchants:
-        active_merchants = await db.execute(
-            select(Merchant.id).where(Merchant.is_active.is_not(False))
-        )
-        merchant_ids.update(row[0] for row in active_merchants)
 
     for merchant_id in merchant_ids:
         if not await db.get(Merchant, merchant_id):
@@ -1298,27 +1294,22 @@ async def list_events(db: AsyncSession = Depends(get_db)):
 
 @app.get("/events/featured-merchants")
 async def featured_event_merchants(db: AsyncSession = Depends(get_db)):
-    # Before an administrator creates a formal event, the event widget presents
-    # all on-board vendors rather than an empty promotional panel.
+    # Only vendors deliberately assigned by an administrator belong in the
+    # Payvolution widget. Everyone else remains in Browse Campus Stalls.
     now = datetime.now(timezone.utc)
     event = (await db.execute(
         select(Event)
-        .where(Event.is_active.is_(True), Event.end_time >= now)
+        .where(Event.is_active.is_(True), Event.start_time <= now, Event.end_time >= now)
         .order_by(Event.start_time.asc())
         .limit(1)
     )).scalars().first()
-    if event:
-        result = await db.execute(
-            select(Merchant).join(EventMerchant, EventMerchant.merchant_id == Merchant.id)
-            .where(EventMerchant.event_id == event.id, EventMerchant.is_active.is_(True),
-                   Merchant.is_active.is_not(False)).distinct()
-        )
-        merchants = result.scalars().all()
-        if merchants:
-            return [{"id": str(m.id), "name": m.name, "location": m.location, "description": m.description}
-                    for m in merchants]
-
-    result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)).order_by(Merchant.name))
+    if not event:
+        return []
+    result = await db.execute(
+        select(Merchant).join(EventMerchant, EventMerchant.merchant_id == Merchant.id)
+        .where(EventMerchant.event_id == event.id, EventMerchant.is_active.is_(True),
+               Merchant.is_active.is_not(False)).distinct()
+    )
     merchants = result.scalars().all()
     return [{"id": str(m.id), "name": m.name, "location": m.location, "description": m.description}
             for m in merchants]
@@ -1385,15 +1376,9 @@ async def get_event_merchants(event_id: UUID, db: AsyncSession = Depends(get_db)
     
     merchants_with_items = []
     
-    # An event with no explicit assignments starts by showing every active
-    # merchant. That keeps the public Event page useful before an admin has
-    # customised the vendor list.
-    if event_merchants:
-        merchant_rows = [(await db.get(Merchant, membership.merchant_id), getattr(membership, "stall_number", None))
-                         for membership in event_merchants]
-    else:
-        active = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)).order_by(Merchant.name))
-        merchant_rows = [(merchant, None) for merchant in active.scalars().all()]
+    # An empty event stays empty until an administrator selects vendors.
+    merchant_rows = [(await db.get(Merchant, membership.merchant_id), getattr(membership, "stall_number", None))
+                     for membership in event_merchants]
 
     for merchant, stall_number in merchant_rows:
         if not merchant or merchant.is_active is False:
@@ -1482,23 +1467,23 @@ async def admin_event_merchant_ids(
     return [str(row[0]) for row in result]
 
 
-@app.post("/events/{event_id}/merchants/all")
-async def add_all_merchants_to_event(
+@app.delete("/events/{event_id}")
+async def delete_event(
     event_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can manage event merchants.")
-    if not await db.get(Event, event_id):
+        raise HTTPException(status_code=403, detail="Only admins can delete events.")
+    event = await db.get(Event, event_id)
+    if not event:
         raise HTTPException(status_code=404, detail="Event not found.")
-    active = (await db.execute(select(Merchant.id).where(Merchant.is_active.is_not(False)))).scalars().all()
-    existing = set((await db.execute(select(EventMerchant.merchant_id).where(EventMerchant.event_id == event_id))).scalars().all())
-    for merchant_id in active:
-        if merchant_id not in existing:
-            db.add(EventMerchant(event_id=event_id, merchant_id=merchant_id))
+    memberships = (await db.execute(select(EventMerchant).where(EventMerchant.event_id == event_id))).scalars().all()
+    for membership in memberships:
+        await db.delete(membership)
+    await db.delete(event)
     await db.commit()
-    return {"message": "All active vendors are now included in this event.", "merchant_count": len(active)}
+    return {"message": "Event deleted. Its vendors are back in Browse Campus Stalls."}
 
 
 @app.delete("/events/{event_id}/merchants/{merchant_id}")

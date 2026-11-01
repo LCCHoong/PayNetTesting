@@ -83,7 +83,7 @@ const PREP_TIMES = ["3-5 mins", "5-10 mins", "10-15 mins", "15-20 mins"];
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function MerchantMenuPage() {
+export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -136,15 +136,16 @@ export default function MerchantMenuPage() {
         const profileData = await profileRes.json();
         setMerchant(profileData);
 
-        // Fetch menu items
-        const menuRes = await fetch(`${BACKEND_URL}/merchants/${profileData.id}/items`);
+        // These independent requests run together after the merchant profile
+        // is known, reducing the wait when vendors open menu management.
+        const [menuRes, slotsRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/merchants/${profileData.id}/items`),
+          fetch(`${BACKEND_URL}/merchants/${profileData.id}/pickup-slots`),
+        ]);
         if (menuRes.ok) {
           const menuData = await menuRes.json();
           setMenuItems(menuData);
         }
-
-        // Fetch pickup slots
-        const slotsRes = await fetch(`${BACKEND_URL}/merchants/${profileData.id}/pickup-slots`);
         if (slotsRes.ok) {
           const slotsData = await slotsRes.json();
           setSlots(slotsData);
@@ -364,13 +365,14 @@ export default function MerchantMenuPage() {
     );
   }
 
+  const Container = embedded ? "section" : "main";
   return (
-    <main className="min-h-screen p-4 sm:p-6 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <Container className={embedded ? "space-y-6" : "min-h-screen p-4 sm:p-6 md:p-8"}>
+      <div className={embedded ? "space-y-6" : "max-w-6xl mx-auto space-y-6"}>
         {/* ────────────────────────────────────────────────────────────────
             HEADER
         ──────────────────────────────────────────────────────────────── */}
-        <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-orange-100 flex flex-wrap justify-between items-center gap-4">
+        {!embedded && <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-orange-100 flex flex-wrap justify-between items-center gap-4">
           <div>
             <Link
               href="/vendor/dashboard"
@@ -391,7 +393,7 @@ export default function MerchantMenuPage() {
           >
             Log Out
           </button>
-        </div>
+        </div>}
 
         {/* ────────────────────────────────────────────────────────────────
             FORMS GRID: Food Product Information & Pickup Slots
@@ -842,6 +844,8 @@ export default function MerchantMenuPage() {
           )}
         </div>
       </div>
-    </main>
+    </Container>
   );
 }
+
+export default MerchantMenuManager;

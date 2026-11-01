@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import AnalyticsDashboard from "@/components/AnalyticsDashboard";
 import DeleteAccountButton from "@/components/DeleteAccountButton";
+import { MerchantMenuManager } from "../menu/page";
 
 interface MerchantProfile {
   id: string;
@@ -103,7 +104,7 @@ export default function MerchantDashboard() {
   const [error, setError] = useState<string | null>(null);
 
   // Edit Merchant Profile States
-  const [tab, setTab] = useState<"analytics" | "orders" | "payment" | "profile">("analytics");
+  const [tab, setTab] = useState<"analytics" | "orders" | "menu" | "payment" | "profile">("analytics");
   const [editStoreName, setEditStoreName] = useState("");
   const [editLocation, setEditLocation] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -134,9 +135,13 @@ export default function MerchantDashboard() {
         if (!profileRes.ok) throw new Error("Could not load merchant profile.");
         const profileData = await profileRes.json();
 
-        const bookingsRes = await fetch(`${BACKEND_URL}/boulevard/my-bookings`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // These three resources are independent once the merchant profile is
+        // known, so load them together instead of waiting for each request.
+        const [bookingsRes, userRes, ordersRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/boulevard/my-bookings`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${BACKEND_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${BACKEND_URL}/merchants/${profileData.id}/orders`, { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
         let hasActiveRentals = false;
         if (bookingsRes.ok) {
           const bookingsData = await bookingsRes.json();
@@ -151,16 +156,12 @@ export default function MerchantDashboard() {
         setEditDescription(profileData.description || "");
         setQrUrl(profileData.duitnow_qr_url || "");
 
-        const userRes = await fetch(`${BACKEND_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
         if (userRes.ok) {
           const userData = await userRes.json();
           setEditEmail(userData.email || "");
           setEditPhone(userData.phone_number || "");
         }
 
-        const ordersRes = await fetch(`${BACKEND_URL}/merchants/${profileData.id}/orders`, { headers: { Authorization: `Bearer ${token}` } });
         if (ordersRes.ok) {
           const ordersData = await ordersRes.json();
           setOrders(ordersData);
@@ -304,8 +305,7 @@ export default function MerchantDashboard() {
             <button onClick={handleLogout} className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700">Log out</button>
           </div>
           <nav aria-label="Merchant portal" className="grid grid-cols-2 gap-2 border-t border-stone-100 pt-4 text-center sm:flex sm:flex-wrap sm:justify-center">
-            {(["analytics","orders","payment","profile"] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={()=>setTab(t)} className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${tab===t ? "bg-orange-700 text-white" : "bg-orange-50 text-orange-900 hover:bg-orange-100"}`}>{{analytics:"Overview",orders:"Manage orders",payment:"Payment setup",profile:"Store profile"}[t]}{t==="orders" ? ` (${orders.filter(o=>["pending","pending_verification","preparing","ready"].includes(o.status)).length})` : ""}</button>)}
-            <Link href="/vendor/menu" className="rounded-xl bg-stone-100 px-4 py-2.5 text-sm font-semibold text-stone-700">Menu & pickup slots</Link>
+            {(["analytics","orders","menu","payment","profile"] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={()=>setTab(t)} className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${tab===t ? "bg-orange-700 text-white" : "bg-orange-50 text-orange-900 hover:bg-orange-100"}`}>{{analytics:"Overview",orders:"Manage orders",menu:"Menu & pickup slots",payment:"Payment setup",profile:"Store profile"}[t]}{t==="orders" ? ` (${orders.filter(o=>["pending","pending_verification","preparing","ready"].includes(o.status)).length})` : ""}</button>)}
             {merchant?.is_temporary && <Link href="/vendor/rental" className="rounded-xl bg-stone-100 px-4 py-2.5 text-sm font-semibold text-stone-700">Stall rental</Link>}
           </nav>
 
@@ -386,6 +386,7 @@ export default function MerchantDashboard() {
         </div>
 
         {tab === "analytics" && <AnalyticsDashboard audience="merchant" embedded />}
+        {tab === "menu" && <MerchantMenuManager embedded />}
         {tab === "payment" && <>
         {/* DuitNow QR Code Management Section */}
         <div className="bg-gradient-to-br from-indigo-50 via-white to-sky-50 p-6 rounded-2xl shadow-sm border border-indigo-200">
