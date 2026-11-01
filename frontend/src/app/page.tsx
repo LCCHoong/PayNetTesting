@@ -159,6 +159,7 @@ export default function Home() {
       setMenusLoading(true);
       const entries = await Promise.all(
         backendMerchants.map(async (merchant) => {
+          if (!merchant.id) return [merchant.id, []] as const;
           try {
             const response = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/items`);
             return [merchant.id, response.ok ? (await response.json()).filter(isDisplayableFood) : []] as const;
@@ -181,7 +182,6 @@ export default function Home() {
   // ─── 5. Add to Cart Handler (with jumping animation & toast) ───────────────
   const addToCart = (item: MenuItem) => {
     if (!item.is_available) return false;
-    // If switching stalls, prompt user to confirm cart reset
     if (selectedMerchantId && selectedMerchantId !== item.merchant_id && Object.keys(cart).length > 0) {
       const currentMerchant = merchants.find((merchant) => merchant.id === selectedMerchantId);
       const nextMerchant = merchants.find((merchant) => merchant.id === item.merchant_id);
@@ -201,7 +201,6 @@ export default function Home() {
       };
     });
 
-    // ── Trigger Cart & Profile Bouncing Animation ──
     setIsCartBouncing(true);
     setIsProfileJumping(true);
     setTimeout(() => {
@@ -209,7 +208,6 @@ export default function Home() {
       setIsProfileJumping(false);
     }, 700);
 
-    // ── Trigger Toast Message (Don't forget to check out at the cart) ──
     setToastMessage(`🛒 Added ${item.name}! Don't forget to check out at the cart.`);
     setTimeout(() => {
       setToastMessage((msg) => (msg?.includes(item.name) ? null : msg));
@@ -295,7 +293,6 @@ export default function Home() {
       const orderData = await orderRes.json();
       const orderId = orderData.id;
 
-      // Redirect straight to DuitNow QR verification page
       window.location.href = `/checkout/success/${orderId}`;
     } catch (err: any) {
       alert(err.message || "Checkout failed.");
@@ -307,8 +304,6 @@ export default function Home() {
   // ─── 8. Compact Item Card Component ───────────────────────────────────────
   const ItemCard = ({ item }: { item: MenuItem }) => {
     const desc = item.description || "";
-    // Menu management adds a structured "Spiciness:" tag. Read it first so
-    // "Non-Spicy" drinks such as Sprite Iced Tea are never labelled spicy.
     const savedSpiceLevel = desc.match(/Spiciness:\s*([^|\]\n]+)/i)?.[1]?.trim().toLowerCase();
     const hasSpicyWord = /\b(spicy|pedas|sambal|chili|chilli)\b/i.test(`${item.name} ${desc}`);
     const isExplicitlyNonSpicy = /\b(non[-\s]?spicy|not spicy|tidak pedas)\b/i.test(`${item.name} ${desc}`);
@@ -319,7 +314,6 @@ export default function Home() {
 
     return (
       <article className="relative flex w-52 sm:w-60 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md">
-        {/* Item image */}
         <div className="relative h-28 sm:h-36 w-full overflow-hidden bg-slate-100">
           {item.image_url ? (
             <img
@@ -334,7 +328,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Quick badge overlays */}
           <div className="absolute top-2 left-2 flex flex-wrap gap-1">
             {isRahmah && (
               <span className="rounded-md bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white shadow">
@@ -349,7 +342,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Item Details */}
         <div className="flex flex-1 flex-col p-3">
           <div className="flex items-start justify-between gap-1">
             <h4 className="font-bold text-slate-900 text-sm leading-tight line-clamp-1">{item.name}</h4>
@@ -362,7 +354,6 @@ export default function Home() {
             {desc || "Made fresh at the stall."}
           </p>
 
-          {/* Availability + Add to Cart button */}
           <div className="mt-auto flex items-center justify-between gap-2 pt-2.5">
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
@@ -389,7 +380,6 @@ export default function Home() {
     );
   };
 
-  // ── Loading state ──
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-4">
@@ -401,10 +391,6 @@ export default function Home() {
 
   return (
     <main className="min-h-screen p-3 sm:p-5 md:p-8 pb-28 lg:pb-8">
-      {/* ────────────────────────────────────────────────────────────────
-          FLOATING TOAST NOTIFICATION
-          Appears at the top when user adds items to cart
-      ──────────────────────────────────────────────────────────────── */}
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-md animate-slide-up">
           <div className="flex items-center justify-between gap-3 rounded-2xl bg-slate-900/95 px-4 py-3 text-white shadow-2xl backdrop-blur-md border border-slate-700">
@@ -423,12 +409,7 @@ export default function Home() {
       )}
 
       <div className="max-w-6xl mx-auto space-y-4 sm:space-y-6">
-        {/* ────────────────────────────────────────────────────────────────
-            HEADER
-            Compact, mobile-friendly with logo beside title and profile
-        ──────────────────────────────────────────────────────────────── */}
         <header className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-orange-100">
-          {/* Brand Logo & Title */}
           <Link href="/" className="flex items-center gap-2.5 group">
             <img
               src="/payvolution-events.png"
@@ -442,17 +423,14 @@ export default function Home() {
             </div>
           </Link>
 
-          {/* Action Navigation */}
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* Boulevard Rentals link */}
             <Link
               href="/vendor/rental"
               className="hidden sm:inline-flex bg-orange-50 hover:bg-orange-100 text-orange-700 text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition border border-orange-200/60"
             >
-             Rentals
+              Rentals
             </Link>
 
-            {/* 🛒 Cart Button — Positioned at the LEFT-HAND SIDE of My Profile */}
             <button
               type="button"
               onClick={() => setIsMobileCartOpen(true)}
@@ -467,7 +445,6 @@ export default function Home() {
               <span className="text-base sm:text-lg">🛒</span>
               <span className="font-extrabold">Cart</span>
 
-              {/* Item count badge */}
               {totalItemCount > 0 ? (
                 <span className="ml-0.5 flex h-5 min-w-[20px] px-1.5 items-center justify-center rounded-full bg-white text-[#F04B14] text-[11px] font-black shadow-sm">
                   {totalItemCount}
@@ -477,7 +454,6 @@ export default function Home() {
               )}
             </button>
 
-            {/* Profile Button */}
             <Link
               href="/profile"
               className={`relative flex items-center gap-1.5 sm:gap-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl transition border border-slate-200 cursor-pointer ${
@@ -485,7 +461,6 @@ export default function Home() {
               }`}
               title="View your profile, photo & orders"
             >
-              {/* Profile Avatar / Photo */}
               {userProfilePic ? (
                 <img
                   src={userProfilePic}
@@ -503,20 +478,14 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Backend Error Banner */}
         {errorMessage && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs sm:text-sm">
             {errorMessage}
           </div>
         )}
 
-        {/* ────────────────────────────────────────────────────────────────
-            PAYVOLUTION EVENTS PROMO CARD
-            Colourful purple-to-indigo banner with horizontally scrolling cards
-        ──────────────────────────────────────────────────────────────── */}
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-800 p-4 sm:p-6 shadow-md w-full text-white">
           <div className="relative z-10 flex flex-col gap-4 sm:gap-5">
-            {/* Top Row: Title + Link */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <img
@@ -526,7 +495,6 @@ export default function Home() {
                 />
                 <div>
                   <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">Payvolution Event</h2>
-
                 </div>
               </div>
 
@@ -547,15 +515,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Decorative Background Glows */}
           <div className="absolute top-0 right-0 -mt-10 -mr-10 h-36 w-36 rounded-full bg-white opacity-10 blur-2xl pointer-events-none" />
           <div className="absolute bottom-0 left-20 -mb-10 h-24 w-24 rounded-full bg-indigo-400 opacity-20 blur-xl pointer-events-none" />
         </div>
 
-        {/* ────────────────────────────────────────────────────────────────
-            TAB-BASED RECOMMENDATION WIDGET
-            Hot Deals, Budget Friendly, RM5 Rahmah, Not Spicy, All Picks
-        ──────────────────────────────────────────────────────────────── */}
         <RecommendationWidget
           items={allMenuItems}
           merchants={merchants}
@@ -563,11 +526,7 @@ export default function Home() {
           loading={menusLoading}
         />
 
-        {/* ────────────────────────────────────────────────────────────────
-            STALL-BY-STALL MARKETPLACE & CART SECTION
-        ──────────────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 items-start gap-6 ">
-          {/* Main Stall Rows */}
           <section className="min-w-0 space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-2 px-1">
               <div>
@@ -593,7 +552,6 @@ export default function Home() {
                       key={merchant.id}
                       className="grid gap-3 sm:gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm md:grid-cols-[12rem_minmax(0,1fr)]"
                     >
-                      {/* Stall Header / Info */}
                       <div className="flex flex-col justify-between gap-2 border-b border-slate-100 pb-3 md:border-b-0 md:border-r md:pb-0 md:pr-4">
                         <div>
                           <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-orange-700">
@@ -609,10 +567,8 @@ export default function Home() {
                             {merchant.description}
                           </p>
                         )}
-
                       </div>
 
-                      {/* Horizontal Scrolling Items */}
                       <div className="min-w-0">
                         {menusLoading ? (
                           <p className="py-6 text-center text-xs text-slate-400">Loading menu…</p>
@@ -631,15 +587,9 @@ export default function Home() {
                 })
             )}
           </section>
-
-
         </div>
       </div>
 
-      {/* ────────────────────────────────────────────────────────────────
-          MOBILE FLOATING CART BOTTOM BAR (<lg)
-          Visible whenever cart contains items on mobile
-      ──────────────────────────────────────────────────────────────── */}
       {totalItemCount > 0 && (
         <div className="lg:hidden fixed bottom-0 left-0 right-0 p-3 z-40 bg-gradient-to-t from-slate-950/80 via-slate-950/60 to-transparent pointer-events-none">
           <div className="max-w-md mx-auto pointer-events-auto">
@@ -668,23 +618,16 @@ export default function Home() {
         </div>
       )}
 
-      {/* ────────────────────────────────────────────────────────────────
-          CART DRAWER (all screen sizes)
-      ──────────────────────────────────────────────────────────────── */}
       {selectedShop && <ShopDetailsDialog merchant={selectedShop} items={menuItemsByMerchant[selectedShop.id] || []} onClose={() => setSelectedShop(null)} onAdd={item => {
         if (addToCart(item)) { setSelectedShop(null); setToastMessage(null); setIsMobileCartOpen(true); }
       }} />}
       {isMobileCartOpen && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
-          {/* Backdrop click to dismiss */}
           <div className="flex-1" onClick={() => setIsMobileCartOpen(false)} />
 
-          {/* Drawer content */}
           <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-3xl p-5 shadow-2xl border-t border-slate-200 max-h-[85vh] flex flex-col animate-slide-up">
-            {/* Grab handle */}
             <div className="mx-auto -mt-2 mb-3 h-1.5 w-12 rounded-full bg-slate-300" />
 
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-3">
               <div>
                 <h3 className="text-lg font-bold text-slate-900">Your Cart</h3>
@@ -701,7 +644,6 @@ export default function Home() {
               </button>
             </div>
 
-            {/* Cart Items List */}
             {Object.keys(cart).length === 0 ? (
               <div className="py-12 text-center text-slate-400">
                 <p className="text-4xl mb-2">🛒</p>
@@ -745,7 +687,6 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Pickup Slot & Checkout Area */}
                 <div className="mt-4 pt-3 border-t border-slate-100 space-y-3">
                   <div>
                     <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
