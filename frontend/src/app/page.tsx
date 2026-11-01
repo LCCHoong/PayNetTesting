@@ -124,7 +124,8 @@ export default function Home() {
   useEffect(() => {
     async function loadMerchants() {
       try {
-        const res = await fetch(`${BACKEND_URL}/merchants/sorted`);
+        let res = await fetch(`${BACKEND_URL}/merchants/sorted`);
+        if (!res.ok) res = await fetch(`${BACKEND_URL}/merchants`); // fallback before backend deploy
         if (res.ok) {
           const data: Merchant[] = await res.json();
           if (!Array.isArray(data) || data.some((merchant) => !merchant.id)) {
