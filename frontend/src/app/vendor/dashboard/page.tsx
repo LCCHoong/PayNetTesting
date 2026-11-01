@@ -138,20 +138,12 @@ export default function MerchantDashboard() {
 
         // These three resources are independent once the merchant profile is
         // known, so load them together instead of waiting for each request.
-        const [bookingsRes, userRes, ordersRes] = await Promise.all([
-          fetch(`${BACKEND_URL}/boulevard/my-bookings`, { headers: { Authorization: `Bearer ${token}` } }),
+        // (Boulevard rentals were removed from the backend, so their bookings call is gone too.)
+        const [userRes, ordersRes] = await Promise.all([
           fetch(`${BACKEND_URL}/auth/me`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${BACKEND_URL}/merchants/${profileData.id}/orders`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
-        let hasActiveRentals = false;
-        if (bookingsRes.ok) {
-          const bookingsData = await bookingsRes.json();
-          if (bookingsData.length > 0) {
-            hasActiveRentals = true;
-          }
-        }
-
-        setMerchant({ ...profileData, is_temporary: hasActiveRentals || profileData.location?.toLowerCase().includes("boulevard") });
+        setMerchant({ ...profileData, is_temporary: profileData.location?.toLowerCase().includes("boulevard") });
         setEditStoreName(profileData.name || "");
         setEditLocation(profileData.location || "");
         setEditDescription(profileData.description || "");
@@ -307,7 +299,6 @@ export default function MerchantDashboard() {
           </div>
           <nav aria-label="Merchant portal" className="grid grid-cols-2 gap-2 border-t border-stone-100 pt-4 text-center sm:flex sm:flex-wrap sm:justify-center">
             {(["analytics","orders","menu","payment","profile"] as const).map(t => <button key={t} aria-pressed={tab === t} onClick={()=>setTab(t)} className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${tab===t ? "bg-orange-700 text-white" : "bg-orange-50 text-orange-900 hover:bg-orange-100"}`}>{{analytics:"Overview",orders:"Manage orders",menu:"Menu & pickup slots",payment:"Payment setup",profile:"Store profile"}[t]}{t==="orders" ? ` (${orders.filter(o=>["pending","pending_verification","preparing","ready"].includes(o.status)).length})` : ""}</button>)}
-            {merchant?.is_temporary && <Link href="/vendor/rental" className="rounded-xl bg-stone-100 px-4 py-2.5 text-sm font-semibold text-stone-700">Stall rental</Link>}
           </nav>
 
           {profileUpdateSuccess && (
@@ -466,7 +457,8 @@ export default function MerchantDashboard() {
                       order.status === 'pending_verification' ? 'bg-yellow-100 text-yellow-800' :
                       order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                       order.status === 'preparing' ? 'bg-blue-100 text-blue-800' :
-                      order.status === 'ready' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-800'
+                      order.status === 'ready' ? 'bg-green-100 text-green-800' :
+                      order.status === 'rejected' || order.status === 'cancelled' ? 'bg-red-100 text-red-800' : 'bg-gray-200 text-gray-800'
                     }`}>
                       {order.status}
                     </span>
@@ -520,6 +512,14 @@ export default function MerchantDashboard() {
                       <span className="text-orange-600 text-sm">RM {Number(order.total_price).toFixed(2)}</span>
                     </div>
                     <div className="space-x-2">
+                      {(order.status === 'pending_verification' || order.status === 'pending') && (
+                        <button
+                          onClick={() => { if (confirm("Reject this order? Use this when the payment receipt is missing or not genuine. The pickup place is freed.")) handleUpdateOrderStatus(order.id, 'rejected'); }}
+                          className="bg-white border border-red-300 text-red-700 hover:bg-red-50 px-3.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all"
+                        >
+                          Reject
+                        </button>
+                      )}
                       {order.status === 'pending_verification' && (
                         <button
                           onClick={() => handleUpdateOrderStatus(order.id, 'preparing')}
