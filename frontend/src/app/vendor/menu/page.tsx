@@ -191,6 +191,8 @@ export default function MerchantMenuPage() {
     if (!merchant) return;
 
     try {
+      const token = localStorage.getItem("token");
+
       // Build structured tag metadata into description
       const tags: string[] = [];
       if (category) tags.push(`Category: ${category}`);
@@ -207,7 +209,10 @@ export default function MerchantMenuPage() {
 
       const res = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/items`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}` 
+        },
         body: JSON.stringify({
           name: name.trim(),
           description: compiledDescription,
