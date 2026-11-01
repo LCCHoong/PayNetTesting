@@ -778,6 +778,9 @@ export function MerchantMenuManager({ embedded = false }: { embedded?: boolean }
                         </p>
                         <p className="text-[11px] text-slate-500">
                           Bookings: {slot.current_bookings} / {slot.max_capacity}
+                          {slot.current_bookings >= slot.max_capacity && (
+                            <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">FULL</span>
+                          )}
                         </p>
                       </div>
                       <button

@@ -30,6 +30,16 @@ interface Merchant {
   location: string;
 }
 
+interface ActiveEvent {
+  id: string;
+  name: string;
+  description?: string;
+  banner_image_url?: string;
+  event_url?: string;
+  start_time: string;
+  end_time: string;
+}
+
 interface MenuItem {
   id: string;
   name: string;
@@ -55,7 +65,17 @@ export default function Home() {
   // ── State: Merchants & Menus ──
   const [merchants, setMerchants] = useState<Merchant[]>([]);
   const [eventMerchantIds, setEventMerchantIds] = useState<string[]>([]);
+  const [activeEvent, setActiveEvent] = useState<ActiveEvent | null>(null);
   useEffect(() => {
+    // Load the currently active event for the banner
+    fetch(`${BACKEND_URL}/events`)
+      .then(r => r.ok ? r.json() : [])
+      .then((evs: ActiveEvent[]) => {
+        const now = Date.now();
+        const live = evs.find(e => new Date(e.start_time).getTime() <= now && new Date(e.end_time).getTime() >= now);
+        setActiveEvent(live || null);
+      })
+      .catch(() => {});
     fetch(`${BACKEND_URL}/events/featured-merchants`).then(r => {
       if (!r.ok) throw new Error("Events unavailable");
       return r.json();
@@ -104,7 +124,7 @@ export default function Home() {
   useEffect(() => {
     async function loadMerchants() {
       try {
-        const res = await fetch(`${BACKEND_URL}/merchants`);
+        const res = await fetch(`${BACKEND_URL}/merchants/sorted`);
         if (res.ok) {
           const data: Merchant[] = await res.json();
           if (!Array.isArray(data) || data.some((merchant) => !merchant.id)) {
@@ -498,40 +518,52 @@ export default function Home() {
           </div>
         )}
 
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-purple-700 via-indigo-600 to-purple-800 p-4 sm:p-6 shadow-md w-full text-white">
-          <div className="relative z-10 flex flex-col gap-4 sm:gap-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <img
-                  src="/payvolution-events.png"
-                  alt="Payvolution Event"
-                  className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-white/20 p-1.5 object-contain backdrop-blur-sm"
-                />
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">Payvolution Event</h2>
+        {/* Dynamic event banner — only shows when an event is live */}
+        {activeEvent && (
+          <div className="relative overflow-hidden rounded-2xl shadow-md w-full text-white"
+            style={activeEvent.banner_image_url
+              ? { backgroundImage: `url(${activeEvent.banner_image_url})`, backgroundSize: "cover", backgroundPosition: "center" }
+              : { background: "linear-gradient(135deg, #5b21b6, #4338ca, #6d28d9)" }}>
+            {/* Dark overlay for readability when poster is set */}
+            {activeEvent.banner_image_url && <div className="absolute inset-0 bg-black/50" />}
+            <div className="relative z-10 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <img src="/payvolution-events.png" alt="Event" className="h-8 w-8 rounded-xl bg-white/20 p-1.5 object-contain backdrop-blur-sm" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">Campus Pop-up</p>
+                    <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight">{activeEvent.name}</h2>
+                  </div>
+                </div>
+                <div className="flex gap-2 self-start sm:self-auto">
+                  {activeEvent.event_url && (
+                    <Link href={activeEvent.event_url}
+                      className="shrink-0 bg-white text-slate-900 text-xs sm:text-sm font-bold px-4 py-2 rounded-xl transition hover:bg-purple-50 shadow-sm">
+                      Event Info →
+                    </Link>
+                  )}
+                  <Link href="/events"
+                    className="shrink-0 bg-white/20 hover:bg-white/30 text-white text-xs sm:text-sm font-bold px-4 py-2 rounded-xl transition border border-white/30">
+                    See all vendors →
+                  </Link>
                 </div>
               </div>
-
-              <Link
-                href="/events"
-                className="self-start sm:self-auto shrink-0 bg-white/20 hover:bg-white/30 text-white text-xs sm:text-sm font-bold px-4 py-2 rounded-xl transition border border-white/30"
-              >
-                See all vendors →
-              </Link>
-            </div>
-
-            <p className="text-sm text-purple-100">Meet the participating campus vendors and open any shop to see its real menu.</p>
-            <div className="flex flex-wrap gap-3">
-              {merchants.filter(m => eventMerchantIds.includes(m.id)).map(m => <button key={m.id} onClick={() => setSelectedShop(m)} className="rounded-xl bg-white px-5 py-3 text-left text-slate-900 transition hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-white">
-                <span className="block font-bold">{m.name}</span><span className="text-xs text-slate-500">{m.location} · View shop</span>
-              </button>)}
-              {!merchants.some(m => eventMerchantIds.includes(m.id)) && <p className="rounded-xl bg-white/10 px-4 py-3 text-sm text-purple-50">Event vendors will appear here when their shop is on board.</p>}
+              <p className="mt-3 text-sm text-white/80">{activeEvent.description || "Meet the participating campus vendors and open any shop to see its real menu."}</p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                {merchants.filter(m => eventMerchantIds.includes(m.id)).map(m => (
+                  <button key={m.id} onClick={() => setSelectedShop(m)}
+                    className="rounded-xl bg-white px-5 py-3 text-left text-slate-900 transition hover:bg-purple-50 focus:outline-none focus:ring-2 focus:ring-white">
+                    <span className="block font-bold">{m.name}</span>
+                    <span className="text-xs text-slate-500">{m.location} · View shop</span>
+                  </button>
+                ))}
+                {!merchants.some(m => eventMerchantIds.includes(m.id)) && (
+                  <p className="rounded-xl bg-white/10 px-4 py-3 text-sm text-white/70">Event vendors will appear here when their shop is on board.</p>
+                )}
+              </div>
             </div>
           </div>
-
-          <div className="absolute top-0 right-0 -mt-10 -mr-10 h-36 w-36 rounded-full bg-white opacity-10 blur-2xl pointer-events-none" />
-          <div className="absolute bottom-0 left-20 -mb-10 h-24 w-24 rounded-full bg-indigo-400 opacity-20 blur-xl pointer-events-none" />
-        </div>
+        )}
 
         <RecommendationWidget
           items={allMenuItems}
@@ -711,25 +743,25 @@ export default function Home() {
                     <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
                       Pickup Slot
                     </label>
-                    {pickupSlots.length === 0 ? (
-                      <p className="text-xs text-red-600">No pickup slots available.</p>
-                    ) : (
-                      <select
-                        value={selectedSlotId}
-                        onChange={(e) => setSelectedSlotId(e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800"
-                      >
-                        {pickupSlots.map((slot) => (
-                          <option key={slot.id} value={slot.id}>
-                            {new Date(slot.time_slot).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}{" "}
-                            ({slot.current_bookings}/{slot.max_capacity} booked)
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                    {(() => {
+                      // Customers only see slots that aren't full yet
+                      const availableSlots = pickupSlots.filter(s => s.current_bookings < s.max_capacity);
+                      if (availableSlots.length === 0) return <p className="text-xs text-red-600">No pickup slots available right now.</p>;
+                      return (
+                        <select
+                          value={selectedSlotId}
+                          onChange={(e) => setSelectedSlotId(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-xs text-slate-800"
+                        >
+                          {availableSlots.map((slot) => (
+                            <option key={slot.id} value={slot.id}>
+                              {new Date(slot.time_slot).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              {" "}({slot.current_bookings}/{slot.max_capacity} booked)
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex justify-between items-center font-bold text-slate-900 pt-1">

@@ -1593,3 +1593,333 @@ async def remove_merchant_from_event(
     await db.delete(membership)
     await db.commit()
     return {"message": "Merchant removed from event."}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ADMIN EXTENDED ENDPOINTS (added for full admin authority)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class AdminMerchantProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+
+class MenuItemApproval(BaseModel):
+    approval_status: Literal["approved", "rejected"]
+
+class MerchantOrderUpdate(BaseModel):
+    ordered_ids: List[UUID]
+
+class EventUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    event_date: Optional[date] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    event_url: Optional[str] = None
+
+
+@app.patch("/admin/merchants/{merchant_id}")
+async def admin_update_merchant(
+    merchant_id: UUID,
+    payload: AdminMerchantProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    if payload.name is not None:
+        merchant.name = payload.name.strip()
+    if payload.description is not None:
+        merchant.description = payload.description
+    if payload.location is not None:
+        merchant.location = payload.location
+    try:
+        await db.commit()
+        await db.refresh(merchant)
+        return {"message": "Merchant profile updated.", "id": str(merchant.id), "name": merchant.name, "location": merchant.location, "description": merchant.description}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.patch("/admin/merchants/{merchant_id}/toggle-active")
+async def admin_toggle_merchant_active(
+    merchant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    merchant.is_active = not merchant.is_active
+    await db.commit()
+    await db.refresh(merchant)
+    return {"message": f"Merchant {'activated' if merchant.is_active else 'deactivated'}.", "is_active": merchant.is_active}
+
+
+@app.delete("/admin/merchants/{merchant_id}")
+async def admin_delete_merchant(
+    merchant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    try:
+        await db.execute(EventMerchant.__table__.delete().where(EventMerchant.merchant_id == merchant_id))
+        await db.delete(merchant)
+        await db.commit()
+        return {"message": "Merchant deleted successfully."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.patch("/admin/menu-items/{item_id}/approval")
+async def admin_approve_menu_item(
+    item_id: UUID,
+    payload: MenuItemApproval,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    item = await db.get(MenuItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Menu item not found.")
+    setattr(item, "approval_status", payload.approval_status)
+    item.is_available = payload.approval_status == "approved"
+    try:
+        await db.commit()
+        await db.refresh(item)
+        return {"message": f"Menu item {payload.approval_status}.", "id": str(item.id), "approval_status": payload.approval_status}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/admin/menu-items/{item_id}")
+async def admin_delete_menu_item(
+    item_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    item = await db.get(MenuItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Menu item not found.")
+    try:
+        await db.delete(item)
+        await db.commit()
+        return {"message": "Menu item deleted."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/admin/pickup-slots/{slot_id}")
+async def admin_delete_pickup_slot(
+    slot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    slot = await db.get(PickupSlot, slot_id)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Pickup slot not found.")
+    try:
+        await db.delete(slot)
+        await db.commit()
+        return {"message": "Pickup slot deleted."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/admin/merchants/reorder")
+async def admin_reorder_merchants(
+    payload: MerchantOrderUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    try:
+        for index, merchant_id in enumerate(payload.ordered_ids):
+            merchant = await db.get(Merchant, merchant_id)
+            if merchant:
+                setattr(merchant, "display_order", index)
+        await db.commit()
+        return {"message": "Merchant display order updated."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/merchants/sorted")
+async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Merchant)
+        .where(Merchant.is_active.is_not(False))
+        .order_by(Merchant.name)
+    )
+    merchants = result.scalars().all()
+    return [MerchantPublic.model_validate(m) for m in merchants]
+
+
+@app.get("/admin/merchants/ordered")
+async def admin_list_merchants_ordered(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    rows = (await db.execute(
+        select(Merchant, User)
+        .join(User, Merchant.user_id == User.id)
+        .order_by(Merchant.name)
+    )).all()
+    return [
+        {
+            "id": str(m.id),
+            "name": m.name,
+            "location": m.location,
+            "description": m.description,
+            "duitnow_qr_url": m.duitnow_qr_url,
+            "is_active": m.is_active,
+            "display_order": getattr(m, "display_order", 0),
+            "owner_name": u.name,
+            "email": u.email,
+            "phone_number": u.phone_number,
+        }
+        for m, u in rows
+    ]
+
+
+@app.patch("/admin/events/{event_id}/banner")
+async def admin_upload_event_banner(
+    event_id: UUID,
+    banner_file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    event = await db.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found.")
+    public_url = await upload_to_supabase(banner_file)
+    event.banner_image_url = public_url
+    try:
+        await db.commit()
+        await db.refresh(event)
+        return {"message": "Event banner uploaded.", "banner_image_url": event.banner_image_url}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.patch("/admin/events/{event_id}")
+async def admin_update_event(
+    event_id: UUID,
+    payload: EventUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    event = await db.get(Event, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found.")
+    if payload.name is not None:
+        event.name = payload.name
+    if payload.description is not None:
+        event.description = payload.description
+    if payload.location is not None:
+        event.location = payload.location
+    if payload.event_date is not None:
+        event.event_date = payload.event_date
+    if payload.start_time is not None:
+        event.start_time = payload.start_time
+    if payload.end_time is not None:
+        event.end_time = payload.end_time
+    if payload.event_url is not None:
+        setattr(event, "event_url", payload.event_url)
+    try:
+        await db.commit()
+        await db.refresh(event)
+        return {
+            "id": str(event.id),
+            "name": event.name,
+            "description": event.description,
+            "location": event.location,
+            "event_date": event.event_date,
+            "start_time": event.start_time,
+            "end_time": event.end_time,
+            "banner_image_url": event.banner_image_url,
+            "event_url": getattr(event, "event_url", None),
+        }
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/admin/merchants/{merchant_id}/items")
+async def admin_list_menu_items(
+    merchant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    result = await db.execute(select(MenuItem).where(MenuItem.merchant_id == merchant_id))
+    items = result.scalars().all()
+    return [
+        {
+            "id": str(i.id),
+            "merchant_id": str(i.merchant_id),
+            "name": i.name,
+            "description": i.description,
+            "price": float(i.price),
+            "image_url": i.image_url,
+            "is_available": i.is_available,
+            "approval_status": getattr(i, "approval_status", "approved"),
+            "created_at": i.created_at,
+        }
+        for i in items
+    ]
+
+
+@app.get("/admin/merchants/{merchant_id}/pickup-slots")
+async def admin_list_pickup_slots(
+    merchant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    result = await db.execute(select(PickupSlot).where(PickupSlot.merchant_id == merchant_id))
+    slots = result.scalars().all()
+    return [
+        {
+            "id": str(s.id),
+            "merchant_id": str(s.merchant_id),
+            "time_slot": s.time_slot,
+            "max_capacity": s.max_capacity,
+            "current_bookings": s.current_bookings,
+            "is_full": s.current_bookings >= s.max_capacity,
+        }
+        for s in slots
+    ]
