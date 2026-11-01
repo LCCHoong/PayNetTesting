@@ -148,15 +148,12 @@ export default function AdminUsersPage() {
     );
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto space-y-8">
 
         {/* ── Header ── */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-          <Link href="/admin/rentals" className="text-orange-600 hover:underline font-medium text-sm">
-            ← Back to Rental Management
-          </Link>
-          <h1 className="text-2xl font-bold text-gray-900 mt-2">Platform User Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Users in the System</h1>
           <p className="text-gray-500 text-sm mt-1">
             All accounts are registered as <span className="font-semibold">Customer</span> by default.
             Admins assign the <span className="font-semibold">Merchant</span> or{" "}
@@ -377,6 +374,6 @@ export default function AdminUsersPage() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
