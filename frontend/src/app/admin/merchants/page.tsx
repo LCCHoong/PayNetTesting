@@ -8,7 +8,7 @@ import { BACKEND_URL } from "@/lib/backend-url";
 type Merchant = {
   id: string; name: string; location: string; description: string;
   email: string; phone_number: string; owner_name: string;
-  is_active: boolean; duitnow_qr_url?: string; display_order?: number;
+  is_active: boolean; is_preview?: boolean; duitnow_qr_url?: string; display_order?: number;
 };
 type Slot = { id: string; time_slot: string; current_bookings: number; max_capacity: number; is_full?: boolean };
 type Item = { id: string; name: string; price: number; is_available: boolean; image_url?: string | null; approval_status?: string };
@@ -166,6 +166,16 @@ export default function AdminMerchants() {
     finally { setBusy(false); }
   }
 
+  async function togglePreview(m: Merchant) {
+    setBusy(true);
+    try {
+      const r = await api(`/admin/merchants/${m.id}/preview`, { method: "PATCH" });
+      setMerchants(ms => ms.map(x => x.id === m.id ? { ...x, is_preview: r.is_preview } : x));
+      showToast(r.is_preview ? "🔒 Stall hidden from public marketplace." : "✅ Stall is now publicly visible.");
+    } catch (ex: any) { showToast(ex.message, "err"); }
+    finally { setBusy(false); }
+  }
+
   async function deleteMerchant(m: Merchant) {
     if (!window.confirm(`Permanently delete ${m.name}? This cannot be undone.`)) return;
     setBusy(true);
@@ -310,7 +320,7 @@ export default function AdminMerchants() {
   );
 
   return (
-    <main className="min-h-screen bg-[#f7f6f3] text-slate-900">
+    <div className="bg-[#f7f6f3] text-slate-900">
 
       {/* ── Toast ── */}
       {toast && (
@@ -320,31 +330,19 @@ export default function AdminMerchants() {
         </div>
       )}
 
-      {/* ── Header ── */}
-      <header className="sticky top-0 z-30 border-b border-stone-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-3">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-orange-500">Administration</p>
-            <h1 className="text-lg font-black leading-tight text-slate-900">Payvolution Admin</h1>
-          </div>
-          <nav className="flex gap-1 text-xs font-semibold">
-            <Link href="/admin/users" className="rounded-lg px-3 py-2 text-slate-500 hover:bg-stone-100 hover:text-slate-800 transition">Users</Link>
-            <Link href="/admin/analytics" className="rounded-lg px-3 py-2 text-slate-500 hover:bg-stone-100 hover:text-slate-800 transition">Analytics</Link>
-            <Link href="/" className="rounded-lg px-3 py-2 text-slate-500 hover:bg-stone-100 hover:text-slate-800 transition">Marketplace ↗</Link>
-          </nav>
-        </div>
-        {/* Tabs */}
+      {/* ── Section tabs ── */}
+      <div className="border-b border-stone-200 bg-white">
         <div className="mx-auto max-w-7xl px-5">
           <div className="flex gap-0">
             {(["merchants", "events"] as AdminTab[]).map(t => (
               <button key={t} onClick={() => setTab(t)}
                 className={`px-5 py-3 text-sm font-bold transition border-b-2 ${tab === t ? "border-violet-600 text-violet-700" : "border-transparent text-slate-400 hover:text-slate-700"}`}>
-                {t === "merchants" ? "🏪 Merchants" : "🎉 Events"}
+                {t === "merchants" ? "🏪 Vendors" : "🎉 Events"}
               </button>
             ))}
           </div>
         </div>
-      </header>
+      </div>
 
       <div className="mx-auto max-w-7xl px-5 py-6">
 
@@ -401,7 +399,10 @@ export default function AdminMerchants() {
                           <div className="flex items-center gap-2">
                             <div className={`h-2 w-2 shrink-0 rounded-full ${m.is_active ? "bg-emerald-500" : "bg-stone-300"}`} />
                             <div className="min-w-0">
-                              <p className={`text-sm font-bold truncate ${selectedId === m.id ? "text-violet-700" : "text-slate-800"}`}>{m.name}</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className={`text-sm font-bold truncate ${selectedId === m.id ? "text-violet-700" : "text-slate-800"}`}>{m.name}</p>
+                                {m.is_preview && <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-black uppercase text-amber-600">Preview</span>}
+                              </div>
                               <p className="text-[11px] text-stone-400 truncate">{m.location}</p>
                             </div>
                           </div>
@@ -445,6 +446,14 @@ export default function AdminMerchants() {
                           <button onClick={() => toggleActive(merchant)} disabled={busy}
                             className={`rounded-xl px-4 py-2 text-xs font-bold transition disabled:opacity-60 ${merchant.is_active ? "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}>
                             {merchant.is_active ? "Deactivate" : "Activate"}
+                          </button>
+                          <button onClick={() => togglePreview(merchant)} disabled={busy}
+                            className={`rounded-xl px-4 py-2 text-xs font-bold transition disabled:opacity-60 ${
+                              merchant.is_preview
+                                ? "border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+                                : "border border-stone-200 bg-stone-50 text-stone-600 hover:bg-stone-100"
+                            }`}>
+                            {merchant.is_preview ? "🔓 Make Public" : "🔒 Preview Only"}
                           </button>
                           <button onClick={() => deleteMerchant(merchant)} disabled={busy}
                             className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-bold text-red-700 hover:bg-red-100 transition disabled:opacity-60">
@@ -777,6 +786,6 @@ export default function AdminMerchants() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }

@@ -38,7 +38,7 @@ export default function AdminLoginPage() {
       localStorage.setItem("token", data.access_token);
       localStorage.setItem("userRole", data.role);
       
-      router.push("/admin/rentals" as any);
+      router.push("/admin/users");
     } catch (err: any) {
       setError(err.message);
     } finally {

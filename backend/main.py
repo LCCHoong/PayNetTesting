@@ -820,7 +820,13 @@ async def create_merchant(merchant_data: MerchantCreate, db: AsyncSession = Depe
 # fetch that shop's menu and pickup slots; the internal `user_id` remains hidden.
 @app.get("/merchants", response_model=List[MerchantPublic])
 async def list_merchants(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Merchant).where(Merchant.is_active.is_not(False)))
+    result = await db.execute(
+        select(Merchant)
+        .where(Merchant.is_active.is_not(False))
+        .where(Merchant.name != "--")
+        .where(Merchant.name != "")
+        .where(Merchant.is_preview.is_not(True))
+    )
     merchants = result.scalars().all()
     return [MerchantPublic.model_validate(m) for m in merchants]
 
@@ -1786,10 +1792,34 @@ async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
         .where(Merchant.is_active.is_not(False))
         .where(Merchant.name != "--")
         .where(Merchant.name != "")
+        .where(Merchant.is_preview.is_not(True))
         .order_by(sql_text("display_order ASC NULLS LAST"), Merchant.name)
     )
     merchants = result.scalars().all()
     return [MerchantPublic.model_validate(m) for m in merchants]
+
+
+@app.patch("/admin/merchants/{merchant_id}/preview")
+async def admin_toggle_preview(
+    merchant_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Toggle the is_preview flag for a merchant (hides them from public marketplace)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required.")
+    merchant = await db.get(Merchant, merchant_id)
+    if not merchant:
+        raise HTTPException(status_code=404, detail="Merchant not found.")
+    current_val = getattr(merchant, "is_preview", False) or False
+    setattr(merchant, "is_preview", not current_val)
+    try:
+        await db.commit()
+        await db.refresh(merchant)
+        return {"id": str(merchant.id), "is_preview": getattr(merchant, "is_preview", False)}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/admin/merchants/ordered")
@@ -1815,6 +1845,7 @@ async def admin_list_merchants_ordered(
             "description": m.description,
             "duitnow_qr_url": m.duitnow_qr_url,
             "is_active": m.is_active,
+            "is_preview": getattr(m, "is_preview", False),
             "display_order": getattr(m, "display_order", 0),
             "owner_name": u.name,
             "email": u.email,
