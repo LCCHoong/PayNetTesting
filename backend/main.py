@@ -237,7 +237,7 @@ class EventMerchantAdd(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     role: Literal["admin", "merchant", "customer"]
-    store_name: Optional[str] = None   # Required when promoting to merchant
+    store_name: Optional[str] = None    # Required when promoting to merchant
     location: Optional[str] = None
     description: Optional[str] = None
 
