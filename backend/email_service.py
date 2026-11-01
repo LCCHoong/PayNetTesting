@@ -5,6 +5,7 @@ Uses Gmail SMTP — same sender as verification emails (payvolutionwebsite@gmail
 import os
 import logging
 import smtplib
+from html import escape
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -19,6 +20,14 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 def _currency(amount) -> str:
     return f"RM {float(amount):.2f}"
+
+
+def _item_description(item: dict) -> str:
+    name = escape(str(item.get("name", "Item")))
+    instructions = item.get("special_instructions")
+    if not instructions:
+        return name
+    return f'{name}<br><small style="color:#c2410c;">{escape(str(instructions))}</small>'
 
 
 def _send_via_gmail(to_email: str, subject: str, html: str) -> bool:
@@ -64,7 +73,7 @@ def send_order_ready_email(
     item_rows = "".join(
         f"""
         <tr>
-          <td style="padding:6px 0;color:#1e293b;">{i['name']}</td>
+          <td style="padding:6px 0;color:#1e293b;">{_item_description(i)}</td>
           <td style="padding:6px 0;text-align:center;color:#64748b;">x{i['quantity']}</td>
           <td style="padding:6px 0;text-align:right;color:#1e293b;">{_currency(float(i['price']) * i['quantity'])}</td>
         </tr>"""

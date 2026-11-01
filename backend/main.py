@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles  # <--- Added import for serving sta
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import case, func, or_, update
+from sqlalchemy import case, func, or_, update, text
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload  # <--- Added import for eager loading relationships
 from pydantic import BaseModel, EmailStr, Field
@@ -48,8 +48,11 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPIOffline):
-    # Tables are already securely generated in Supabase.
-    # Leaving this clear blocks pooler timeouts during fast reloads.
+    # Idempotent lightweight migration for per-item customer customizations.
+    async with engine.begin() as connection:
+        await connection.execute(text(
+            "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS special_instructions TEXT"
+        ))
     yield
 
 app = FastAPIOffline(lifespan=lifespan)
@@ -235,6 +238,7 @@ class MenuItemCreate(BaseModel):
 class OrderItemCreate(BaseModel):
     menu_item_id: UUID
     quantity: int = Field(default=1, ge=1)
+    special_instructions: Optional[str] = Field(default=None, max_length=300)
 
 class OrderCreate(BaseModel):
     merchant_id: UUID
@@ -1039,7 +1043,8 @@ async def create_order(
             raise HTTPException(status_code=400, detail=f"'{item.name}' is currently unavailable.")
         line_total = float(item.price) * line.quantity
         total_price += line_total
-        line_items.append((item, line.quantity))
+        instructions = line.special_instructions.strip() if line.special_instructions else None
+        line_items.append((item, line.quantity, instructions or None))
 
     order_number = f"#EX-{datetime.now().strftime('%H%M%S')}"
 
@@ -1056,12 +1061,13 @@ async def create_order(
 
     try:
         await db.flush()
-        for item, quantity in line_items:
+        for item, quantity, instructions in line_items:
             db.add(OrderItem(
                 order_id=new_order.id,
                 menu_item_id=item.id,
                 quantity=quantity,
-                price_at_order=item.price
+                price_at_order=item.price,
+                special_instructions=instructions,
             ))
         slot.current_bookings += 1
         await db.commit()
@@ -1121,7 +1127,8 @@ async def get_order(order_id: UUID, db: AsyncSession = Depends(get_db)):
             "id": str(item.id),
             "name": item.menu_item.name if item.menu_item else "Unknown Dish",
             "quantity": item.quantity,
-            "price_at_order": float(item.price_at_order)
+            "price_at_order": float(item.price_at_order),
+            "special_instructions": item.special_instructions,
         }
         for item in order.items
     ]
@@ -1154,7 +1161,8 @@ async def list_customer_orders(db: AsyncSession = Depends(get_db), current_user:
                 "id": str(item.id),
                 "name": item.menu_item.name if item.menu_item else "Dish",
                 "quantity": item.quantity,
-                "price_at_order": float(item.price_at_order)
+                "price_at_order": float(item.price_at_order),
+                "special_instructions": item.special_instructions,
             }
             for item in order.items
         ]
@@ -1196,7 +1204,8 @@ async def list_merchant_orders(merchant_id: UUID, db: AsyncSession = Depends(get
                 "id": str(item.id),
                 "name": item.menu_item.name if item.menu_item else "Dish",
                 "quantity": item.quantity,
-                "price_at_order": float(item.price_at_order)
+                "price_at_order": float(item.price_at_order),
+                "special_instructions": item.special_instructions,
             }
             for item in order.items
         ]
@@ -1262,6 +1271,7 @@ async def update_order_status(
                         "name": oi.menu_item.name if oi.menu_item else "Item",
                         "quantity": oi.quantity,
                         "price": float(oi.price_at_order),
+                        "special_instructions": oi.special_instructions,
                     }
                     for oi in full_order.items
                 ]

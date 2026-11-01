@@ -90,6 +90,7 @@ class OrderItem(Base):
     menu_item_id = Column(UUID(as_uuid=True), ForeignKey("menu_items.id"), nullable=False)
     quantity = Column(Integer, nullable=False, default=1)
     price_at_order = Column(Numeric(10, 2), nullable=False)
+    special_instructions = Column(Text, nullable=True)
 
     # --- RELATIONSHIPS ---
     order = relationship("Order", back_populates="items")

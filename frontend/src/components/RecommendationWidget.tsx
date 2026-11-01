@@ -315,7 +315,16 @@ export default function RecommendationWidget({
                 {filteredItems.map((item) => (
                   <article
                     key={item.id}
-                    className="relative group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onViewItem?.(item)}
+                    onKeyDown={(event) => {
+                      if ((event.key === "Enter" || event.key === " ") && onViewItem) {
+                        event.preventDefault();
+                        onViewItem(item);
+                      }
+                    }}
+                    className="relative group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-orange-600"
                   >
 
                     {item.image_url && (
@@ -347,12 +356,15 @@ export default function RecommendationWidget({
 
                         <button
                           type="button"
-                          onClick={() => onAddToCart(item)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onAddToCart(item);
+                          }}
                           className="relative z-20 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90 active:scale-95 cursor-pointer"
                           style={{ backgroundColor: BRAND_ORANGE }}
                         >
                           <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-400" />
-                          Add to cart
+                          Customise
                         </button>
                       </div>
                     </div>

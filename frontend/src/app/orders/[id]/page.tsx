@@ -17,6 +17,7 @@ interface OrderDetail {
     name: string; // Dish name from backend
     quantity: number;
     price_at_order: number;
+    special_instructions?: string | null;
   }>;
 }
 
@@ -91,10 +92,13 @@ export default function OrderReceiptPage() {
               <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">Items Ordered</h2>
               <div className="space-y-3">
                 {data.items.map((item, index) => (
-                  <div key={index} className="flex justify-between items-center text-sm">
-                    <div>
+                  <div key={index} className="flex justify-between items-start gap-4 text-sm">
+                    <div className="min-w-0">
                       <span className="font-medium text-gray-900">{item.name}</span>
                       <span className="text-gray-500 ml-2">x{item.quantity}</span>
+                      {item.special_instructions && (
+                        <p className="mt-1 text-xs leading-relaxed text-orange-700">{item.special_instructions}</p>
+                      )}
                     </div>
                     <span className="font-medium text-gray-900">
                       RM {(Number(item.price_at_order) * item.quantity).toFixed(2)}

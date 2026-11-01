@@ -20,6 +20,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import ShopDetailsDialog from "@/components/ShopDetailsDialog";
 import RecommendationWidget from "@/components/RecommendationWidget";
+import FoodDetailsDialog from "@/components/FoodDetailsDialog";
 
 // ─── Type Definitions ────────────────────────────────────────────────────────
 
@@ -59,6 +60,12 @@ interface PickupSlot {
 
 type MenuLoadStatus = "loading" | "loaded" | "error";
 
+interface CartLine {
+  item: MenuItem;
+  quantity: number;
+  specialInstructions: string;
+}
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function Home() {
@@ -90,8 +97,9 @@ export default function Home() {
   const [selectedSlotId, setSelectedSlotId] = useState<string>("");
 
   // ── State: Cart (single stall at a time) ──
-  const [cart, setCart] = useState<{ [key: string]: { item: MenuItem; quantity: number } }>({});
+  const [cart, setCart] = useState<Record<string, CartLine>>({});
   const [selectedShop, setSelectedShop] = useState<Merchant | null>(null);
+  const [selectedMenuItem, setSelectedMenuItem] = useState<MenuItem | null>(null);
   const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
 
   // ── State: Animations & Toasts ──
@@ -211,7 +219,7 @@ export default function Home() {
   }, [merchants]);
 
   // ─── 5. Add to Cart Handler (with jumping animation & toast) ───────────────
-  const addToCart = (item: MenuItem) => {
+  const addToCart = (item: MenuItem, specialInstructions = "") => {
     if (!item.is_available) return false;
     if (selectedMerchantId && selectedMerchantId !== item.merchant_id && Object.keys(cart).length > 0) {
       const currentMerchant = merchants.find((merchant) => merchant.id === selectedMerchantId);
@@ -223,12 +231,14 @@ export default function Home() {
       setCart({});
     }
 
+    const normalizedInstructions = specialInstructions.trim();
+    const lineKey = `${item.id}::${normalizedInstructions}`;
     setSelectedMerchantId(item.merchant_id);
     setCart((prev) => {
-      const current = prev[item.id] ? prev[item.id].quantity : 0;
+      const current = prev[lineKey]?.quantity ?? 0;
       return {
         ...prev,
-        [item.id]: { item, quantity: current + 1 },
+        [lineKey]: { item, quantity: current + 1, specialInstructions: normalizedInstructions },
       };
     });
 
@@ -247,16 +257,22 @@ export default function Home() {
   };
 
   // ─── 6. Remove from Cart Handler ──────────────────────────────────────────
-  const removeFromCart = (itemId: string) => {
+  const removeFromCart = (lineKey: string) => {
     setCart((prev) => {
       const copy = { ...prev };
-      if (copy[itemId] && copy[itemId].quantity > 1) {
-        copy[itemId] = { ...copy[itemId], quantity: copy[itemId].quantity - 1 };
+      if (copy[lineKey] && copy[lineKey].quantity > 1) {
+        copy[lineKey] = { ...copy[lineKey], quantity: copy[lineKey].quantity - 1 };
       } else {
-        delete copy[itemId];
+        delete copy[lineKey];
       }
       return copy;
     });
+  };
+
+  const increaseCartLine = (lineKey: string) => {
+    setCart((prev) => prev[lineKey]
+      ? { ...prev, [lineKey]: { ...prev[lineKey], quantity: prev[lineKey].quantity + 1 } }
+      : prev);
   };
 
   // ── Derived Cart Values ──
@@ -305,9 +321,10 @@ export default function Home() {
       const orderPayload = {
         merchant_id: selectedMerchantId,
         pickup_slot_id: selectedSlotId,
-        items: Object.values(cart).map(({ item, quantity }) => ({
+        items: Object.values(cart).map(({ item, quantity, specialInstructions }) => ({
           menu_item_id: item.id,
           quantity: quantity,
+          special_instructions: specialInstructions || null,
         })),
       };
 
@@ -348,7 +365,19 @@ export default function Home() {
     const isRahmah = Number(item.price) <= 5.0;
 
     return (
-      <article className="relative flex w-52 sm:w-60 shrink-0 snap-start flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md">
+      <article
+        role="button"
+        tabIndex={0}
+        aria-label={`View ${item.name} details and customise`}
+        onClick={() => setSelectedMenuItem(item)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setSelectedMenuItem(item);
+          }
+        }}
+        className="relative flex w-52 sm:w-60 shrink-0 snap-start cursor-pointer flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-orange-600"
+      >
         <div className="relative h-28 sm:h-36 w-full overflow-hidden bg-slate-100">
           {item.image_url ? (
             <img
@@ -403,11 +432,13 @@ export default function Home() {
 
             <button
               type="button"
-              onClick={() => addToCart(item)}
-              disabled={!item.is_available}
-              className="relative z-20 rounded-lg bg-[#F04B14] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={(event) => {
+                event.stopPropagation();
+                setSelectedMenuItem(item);
+              }}
+              className="relative z-20 rounded-lg bg-[#F04B14] px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 active:scale-95"
             >
-              + Add
+              {item.is_available ? "Customise" : "View"}
             </button>
           </div>
         </div>
@@ -569,7 +600,8 @@ export default function Home() {
         <RecommendationWidget
           items={allMenuItems}
           merchants={merchants}
-          onAddToCart={addToCart}
+          onAddToCart={setSelectedMenuItem}
+          onViewItem={setSelectedMenuItem}
           loading={menusLoading}
         />
 
@@ -670,9 +702,30 @@ export default function Home() {
         </div>
       )}
 
-      {selectedShop && <ShopDetailsDialog merchant={selectedShop} items={menuItemsByMerchant[selectedShop.id] || []} onClose={() => setSelectedShop(null)} onAdd={item => {
-        if (addToCart(item)) { setSelectedShop(null); setToastMessage(null); setIsMobileCartOpen(true); }
-      }} />}
+      {selectedShop && (
+        <ShopDetailsDialog
+          merchant={selectedShop}
+          items={menuItemsByMerchant[selectedShop.id] || []}
+          onClose={() => setSelectedShop(null)}
+          onSelect={(item) => {
+            setSelectedShop(null);
+            setSelectedMenuItem(item);
+          }}
+        />
+      )}
+      {selectedMenuItem && (
+        <FoodDetailsDialog
+          key={selectedMenuItem.id}
+          item={selectedMenuItem}
+          merchant={merchants.find((merchant) => merchant.id === selectedMenuItem.merchant_id)}
+          onClose={() => setSelectedMenuItem(null)}
+          onAdd={(specialInstructions) => {
+            if (addToCart(selectedMenuItem, specialInstructions)) {
+              setSelectedMenuItem(null);
+            }
+          }}
+        />
+      )}
       {isMobileCartOpen && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
           <div className="flex-1" onClick={() => setIsMobileCartOpen(false)} />
@@ -712,16 +765,19 @@ export default function Home() {
             ) : (
               <>
                 <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 divide-y divide-slate-100">
-                  {Object.values(cart).map(({ item, quantity }) => (
-                    <div key={item.id} className="pt-2 flex items-center justify-between gap-2 text-xs">
+                  {Object.entries(cart).map(([lineKey, { item, quantity, specialInstructions }]) => (
+                    <div key={lineKey} className="pt-2 flex items-center justify-between gap-2 text-xs">
                       <div className="min-w-0">
                         <p className="font-bold text-slate-900">{item.name}</p>
                         <p className="text-slate-500">RM {Number(item.price).toFixed(2)} each</p>
+                        {specialInstructions && (
+                          <p className="mt-1 max-w-xs text-[11px] leading-snug text-orange-700">{specialInstructions}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => removeFromCart(item.id)}
+                          onClick={() => removeFromCart(lineKey)}
                           className="h-7 w-7 rounded-lg bg-slate-100 font-bold text-slate-700 hover:bg-slate-200"
                         >
                           −
@@ -729,7 +785,7 @@ export default function Home() {
                         <span className="w-4 text-center font-bold text-sm">{quantity}</span>
                         <button
                           type="button"
-                          onClick={() => addToCart(item)}
+                          onClick={() => increaseCartLine(lineKey)}
                           className="h-7 w-7 rounded-lg bg-slate-100 font-bold text-slate-700 hover:bg-slate-200"
                         >
                           +

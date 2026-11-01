@@ -23,6 +23,7 @@ interface OrderItem {
   name: string;
   quantity: number;
   price_at_order: number;
+  special_instructions?: string | null;
 }
 
 interface Order {
@@ -496,10 +497,17 @@ export default function MerchantDashboard() {
                       <p className="text-xs text-gray-400">No items found.</p>
                     ) : (
                       order.items.map((item, idx) => (
-                        <div key={idx} className="flex justify-between text-xs text-gray-700 py-0.5">
-                          <span className="font-medium">
-                            {item.name} <span className="text-gray-500 font-normal">x{item.quantity}</span>
-                          </span>
+                        <div key={idx} className="flex justify-between gap-3 text-xs text-gray-700 py-0.5">
+                          <div className="min-w-0">
+                            <span className="font-medium">
+                              {item.name} <span className="text-gray-500 font-normal">x{item.quantity}</span>
+                            </span>
+                            {item.special_instructions && (
+                              <p className="mt-1 rounded-md bg-orange-50 px-2 py-1 text-[11px] font-semibold leading-relaxed text-orange-800">
+                                Customer request: {item.special_instructions}
+                              </p>
+                            )}
+                          </div>
                           <span>RM {Number(item.price_at_order * item.quantity).toFixed(2)}</span>
                         </div>
                       ))
