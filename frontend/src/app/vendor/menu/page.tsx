@@ -245,6 +245,8 @@ export default function MerchantMenuPage() {
     if (!merchant) return;
 
     try {
+      const token = localStorage.getItem("token");
+
       // Append +08:00 timezone offset so local time doesn't shift unexpectedly
       const formattedTimeSlot = newSlot.time_slot.includes("+") || newSlot.time_slot.endsWith("Z")
         ? newSlot.time_slot
@@ -252,7 +254,10 @@ export default function MerchantMenuPage() {
 
       const res = await fetch(`${BACKEND_URL}/merchants/${merchant.id}/pickup-slots`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           time_slot: formattedTimeSlot,
           max_capacity: parseInt(newSlot.max_capacity, 10),
