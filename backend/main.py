@@ -55,7 +55,7 @@ async def lifespan(app: FastAPIOffline):
             "ALTER TABLE order_items ADD COLUMN IF NOT EXISTS special_instructions TEXT"
         ))
         await connection.execute(text(
-            "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS is_preview BOOLEAN NOT NULL DEFAULT FALSE"
+            "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS is_preview BOOLEAN NOT NULL DEFAULT TRUE"
         ))
         await connection.execute(text(
             "ALTER TABLE merchants ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0"
@@ -832,6 +832,7 @@ async def list_merchants(db: AsyncSession = Depends(get_db)):
         .where(Merchant.is_active.is_not(False))
         .where(Merchant.name != "--")
         .where(Merchant.name != "")
+        .where(func.lower(func.trim(Merchant.name)) != "payvolution")
         .where(Merchant.is_preview.is_not(True))
     )
     merchants = result.scalars().all()
@@ -847,6 +848,7 @@ async def list_merchants_sorted(db: AsyncSession = Depends(get_db)):
         .where(Merchant.is_active.is_not(False))
         .where(Merchant.name != "--")
         .where(Merchant.name != "")
+        .where(func.lower(func.trim(Merchant.name)) != "payvolution")
         .where(Merchant.is_preview.is_not(True))
         .order_by(Merchant.display_order.asc().nulls_last(), Merchant.name)
     )

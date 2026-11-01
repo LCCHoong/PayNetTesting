@@ -74,6 +74,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
           {/* Right side */}
           <div className="flex items-center gap-3">
+            <a
+              href="/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-stone-100 text-stone-600 hover:bg-stone-200 transition"
+            >
+              👁 View Marketplace
+            </a>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 uppercase tracking-wide">
               Admin
             </span>
