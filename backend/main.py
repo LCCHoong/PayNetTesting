@@ -95,15 +95,16 @@ async def upload_to_supabase(file: UploadFile) -> str:
         raise HTTPException(status_code=500, detail=f"Supabase upload failed: {str(e)}")
 
 
-# --- NEW CORS CONFIGURATION ---
+# --- BULLETPROOF CORS CONFIGURATION ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        origin.strip().rstrip("/")
-        for origin in os.getenv(
-            "CORS_ALLOWED_ORIGINS",
-            "http://localhost:3000,http://localhost:5000,http://127.0.0.1:3000,https://pay-net-iota.vercel.app,https://payvolution.app,https://www.payvolution.app"
-        ).split(",") if origin.strip()
+        "https://payvolution.app",
+        "https://www.payvolution.app",
+        "https://pay-net-iota.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://127.0.0.1:3000",
     ], 
     allow_credentials=True, 
     allow_methods=["*"], 
